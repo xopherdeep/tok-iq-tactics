@@ -14,6 +14,58 @@ export type Faction = 'player' | 'enemy';
 
 export type BoardMode = 'dynamic' | 'classic64';
 
+export type DeploymentPhase = 'CHI_SWAP' | 'ACTIVE';
+
+export interface IqEventRecord {
+  delta: number;
+  reason: string;
+  turnNumber: number;
+}
+
+export interface IqRankTier {
+  label: string;
+  shortLabel: string;
+  minIq: number;
+  accentHex: string;
+  perkSummary: string;
+}
+
+export interface IqRatingState {
+  current: number;
+  peak: number;
+  chronoUsedThisBattle: boolean;
+  lastDelta: number | null;
+  lastReason: string | null;
+  history: IqEventRecord[];
+}
+
+export interface EnemySightlinePreview {
+  enemyId: string;
+  enemyName: string;
+  targetId: string | null;
+  targetName: string | null;
+  from: GridCoord;
+  destination: GridCoord;
+  target: GridCoord | null;
+  actionType: 'attack' | 'heal' | 'wait';
+}
+
+export interface ChronoRewindSnapshot {
+  units: Unit[];
+  turnNumber: number;
+  phase: TurnPhase;
+  playstyle: PlaystyleProfile;
+  consumables: ConsumableInventory;
+  stats: {
+    enemiesDefeated: number;
+    stagesCleared: number;
+    turnsElapsed: number;
+  };
+  iqCurrent: number;
+  iqPeak: number;
+  iqHistory: IqEventRecord[];
+}
+
 export type ViewportOrientation = 'landscape' | 'portrait';
 
 export type VoicePitch = 'high' | 'mid' | 'low';
@@ -472,6 +524,8 @@ export interface BattleSceneState {
   levelUpPillarAge: number;
   xpTickCooldown: number;
   floatingNumbers: BattleFloatingNumber[];
+  cutInText?: string | null;
+  cutInTone?: 'gold' | 'cyan' | null;
   sparks: Array<{
     x: number;
     y: number;
@@ -504,6 +558,8 @@ export interface CampaignSaveData {
     stagesCleared: number;
     turnsElapsed: number;
   };
+  iqRating?: number;
+  peakIq?: number;
   roster: Unit[];
 }
 
@@ -545,6 +601,11 @@ export interface GameSnapshot {
   dialogueScene: DialogueSceneState | null;
   battleScene: BattleSceneState | null;
   shakeMagnitude: number;
+  deploymentPhase: DeploymentPhase;
+  deploymentSpawns: GridCoord[];
+  iqState: IqRatingState;
+  enemySightline: EnemySightlinePreview | null;
+  canChronoRewind: boolean;
   stats: {
     enemiesDefeated: number;
     stagesCleared: number;

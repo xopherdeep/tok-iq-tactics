@@ -852,6 +852,64 @@ export function renderBattleScene(
     ctx.restore();
   }
 
+  if (
+    scene.cutInText &&
+    (scene.step === 'primaryDash' || scene.step === 'primaryImpact')
+  ) {
+    const cutInAlpha =
+      scene.step === 'primaryDash'
+        ? Math.min(1, scene.stepAge / 0.14)
+        : Math.max(0, 1 - scene.stepAge / 0.42);
+    if (cutInAlpha > 0.04) {
+      const isGold = scene.cutInTone !== 'cyan';
+      const bandY = stageY + arenaHeight * 0.24;
+      const bandH = 38;
+      ctx.save();
+      ctx.globalAlpha = cutInAlpha;
+
+      const grad = ctx.createLinearGradient(
+        stageX,
+        bandY,
+        stageX + stageWidth,
+        bandY + bandH,
+      );
+      grad.addColorStop(0, 'rgba(11, 16, 33, 0.0)');
+      grad.addColorStop(
+        0.18,
+        isGold ? 'rgba(245, 158, 11, 0.92)' : 'rgba(45, 212, 191, 0.92)',
+      );
+      grad.addColorStop(
+        0.82,
+        isGold ? 'rgba(250, 204, 21, 0.95)' : 'rgba(56, 189, 248, 0.94)',
+      );
+      grad.addColorStop(1, 'rgba(11, 16, 33, 0.0)');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(stageX, bandY, stageWidth, bandH);
+
+      ctx.strokeStyle = isGold ? '#fef3c7' : '#e0f2fe';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(stageX, bandY + 1);
+      ctx.lineTo(stageX + stageWidth, bandY + 1);
+      ctx.moveTo(stageX, bandY + bandH - 1);
+      ctx.lineTo(stageX + stageWidth, bandY + bandH - 1);
+      ctx.stroke();
+
+      ctx.font = '800 15px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#0b1021';
+      ctx.fillText(
+        scene.cutInText,
+        stageX + stageWidth / 2,
+        bandY + bandH / 2,
+        stageWidth - 40,
+      );
+      ctx.restore();
+    }
+  }
+
   const terrainMeta = TERRAIN_CONFIG[scene.battleTerrain];
   const bannerW = Math.min(stageWidth - 32, 500);
   const bannerH = 48;

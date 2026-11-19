@@ -1,10 +1,11 @@
-import {PALETTE, TERRAIN_CONFIG, UNIT_ARCHETYPES} from './constants';
+import {BOARD_MODE_META, PALETTE, TERRAIN_CONFIG, UNIT_ARCHETYPES} from './constants';
 import {
   buildCombatForecast,
   getManhattanDistance,
   hasAdjacentSovereignAura,
   isDistanceInAttackRange,
 } from './combat';
+import {getIqRankTier} from './iqSystem';
 import {calculateCombatXp, calculateSupportHealXp} from './leveling';
 import {renderBattleScene} from './battleRenderer';
 import {
@@ -1209,6 +1210,7 @@ function resolveForecastForHover(
     snapshot.units,
     snapshot.effects,
     selectedUnit.tilesMovedThisTurn,
+    snapshot.iqState.current,
   );
 }
 
@@ -1739,17 +1741,18 @@ function drawTitleOverlay(
   ctx.font = '600 11px "JetBrains Mono", monospace';
   ctx.fillStyle = PALETTE.auraColor;
   ctx.fillText(
-    'TALES OF XADION · TWIN COMMANDERS TACTICS',
+    'TALES OF XADION × TRENCHESS · SPRING 2004 / SEVENS NIGHT 2007',
     centerX,
     isCompactPortrait ? Math.max(22, centerY - 232) : Math.max(24, centerY - 208),
+    metrics.canvasWidth - 24,
   );
 
   ctx.font = isCompactPortrait
-    ? '700 32px "Plus Jakarta Sans", sans-serif'
-    : '700 44px "Plus Jakarta Sans", sans-serif';
+    ? '700 30px "Plus Jakarta Sans", sans-serif'
+    : '700 42px "Plus Jakarta Sans", sans-serif';
   ctx.fillStyle = PALETTE.textPrimary;
   ctx.fillText(
-    'Birth of the Brotherhood',
+    'TALES OF XADION: IQ TACTICS',
     centerX,
     isCompactPortrait ? Math.max(54, centerY - 196) : Math.max(58, centerY - 168),
     metrics.canvasWidth - 28,
@@ -1760,21 +1763,21 @@ function drawTitleOverlay(
     : '400 14px "Plus Jakarta Sans", sans-serif';
   ctx.fillStyle = PALETTE.textSecondary;
   ctx.fillText(
-    'Twin Commanders X & Sol hold the 64 stones of the Hall Crossing. Link for +ATK/+1 DEF—if either falls, the pact breaks.',
+    'Sixty-four waystones in the wash. Outsmart the storm. Forge the TrenChess.',
     centerX,
     isCompactPortrait ? Math.max(84, centerY - 162) : Math.max(94, centerY - 128),
     metrics.canvasWidth - 28,
   );
 
   const classes: Array<{unitClass: UnitClass; label: string; role: string}> = [
-    {unitClass: 'vanguard', label: 'Vanguard', role: 'Zone Lock'},
-    {unitClass: 'striker', label: 'Striker', role: 'Flyer Dash'},
-    {unitClass: 'arcanist', label: 'Arcanist', role: 'Pierces Cover'},
-    {unitClass: 'ranger', label: 'Ranger', role: 'Rng 2–4 Anti-Air'},
-    {unitClass: 'marksman', label: 'Marksman', role: 'Rng 3–5 Crit'},
-    {unitClass: 'cleric', label: 'Cleric', role: 'Radiant Mend'},
-    {unitClass: 'healer', label: 'Healer', role: 'Pulse Mend 1–3'},
-    {unitClass: 'sovereign', label: 'Commander', role: 'Twin Pact'},
+    {unitClass: 'sovereign', label: '♔ Equinox King', role: 'Lantern Rally'},
+    {unitClass: 'vanguard', label: '♖ Twilight Rook', role: 'Zone Lock'},
+    {unitClass: 'striker', label: '♘ Shadow Knight', role: 'Piercing Dash'},
+    {unitClass: 'arcanist', label: '♗ Light Seer', role: 'Arcane Pierce'},
+    {unitClass: 'ranger', label: '⟁ Thornbow', role: 'True Sight'},
+    {unitClass: 'healer', label: '❀ Sacred Mender', role: 'Healing Dew'},
+    {unitClass: 'marksman', label: '◎ Deadeye', role: 'Rng 3–5 Crit'},
+    {unitClass: 'cleric', label: '✦ Cistern Oracle', role: 'Radiant Mend'},
   ];
 
   const colSpacing = isCompactPortrait
@@ -1870,14 +1873,14 @@ function drawTitleOverlay(
     {
       id: 'mode:dynamic',
       mode: 'dynamic',
-      title: 'Expanding RPG Boards',
+      title: `${BOARD_MODE_META.dynamic.glyph} ${BOARD_MODE_META.dynamic.title}`,
       detail: isPortraitMode ? '6×10 → 7×11 → 8×12' : '8×8 → 10×8 → 12×10',
     },
     {
       id: 'mode:classic64',
       mode: 'classic64',
-      title: 'Classic 64 Squares',
-      detail: 'All stages 8×8',
+      title: `${BOARD_MODE_META.classic64.glyph} ${BOARD_MODE_META.classic64.title}`,
+      detail: 'Strict 8×8 Waystones',
     },
   ];
 
@@ -2018,12 +2021,26 @@ function drawUpgradeOverlay(
   ctx.fillStyle = PALETTE.textPrimary;
   ctx.fillText('Claim a Brotherhood Boon', centerX, topY + 34);
 
-  ctx.font = '400 13px "Plus Jakarta Sans", sans-serif';
-  ctx.fillStyle = PALETTE.textSecondary;
+  const iqTier = getIqRankTier(snapshot.iqState.current);
+  ctx.font = '600 12px "JetBrains Mono", monospace';
+  ctx.fillStyle = iqTier.accentHex;
   ctx.fillText(
-    snapshot.adaptationNote,
+    `IQ REPORT · Final IQ ${snapshot.iqState.current} · Peak IQ ${snapshot.iqState.peak} · ${iqTier.label}`,
     centerX,
-    topY + 64,
+    topY + 60,
+    metrics.canvasWidth - 40,
+  );
+
+  ctx.font = '400 12px "Plus Jakarta Sans", sans-serif';
+  ctx.fillStyle = PALETTE.textSecondary;
+  const bestPlay = snapshot.iqState.history.find((entry) => entry.delta > 0);
+  const reportSubline = bestPlay
+    ? `Standout Play: +${bestPlay.delta} IQ (${bestPlay.reason}) · ${snapshot.adaptationNote}`
+    : snapshot.adaptationNote;
+  ctx.fillText(
+    reportSubline,
+    centerX,
+    topY + 80,
     metrics.canvasWidth - 48,
   );
 
@@ -2145,12 +2162,22 @@ function drawEndScreenOverlay(
     metrics.canvasWidth - 48,
   );
 
-  ctx.font = '500 13px "JetBrains Mono", monospace';
+  const endIqTier = getIqRankTier(snapshot.iqState.current);
+  ctx.font = '600 13px "JetBrains Mono", monospace';
+  ctx.fillStyle = endIqTier.accentHex;
+  ctx.fillText(
+    `Final IQ ${snapshot.iqState.current}  ·  Peak IQ ${snapshot.iqState.peak}  ·  ${endIqTier.label}`,
+    centerX,
+    centerY - 4,
+    metrics.canvasWidth - 48,
+  );
+
+  ctx.font = '500 12px "JetBrains Mono", monospace';
   ctx.fillStyle = PALETTE.textPrimary;
   ctx.fillText(
     `Stages Cleared: ${snapshot.stats.stagesCleared}  ·  Foes Defeated: ${snapshot.stats.enemiesDefeated}  ·  Turns: ${snapshot.stats.turnsElapsed}`,
     centerX,
-    centerY + 8,
+    centerY + 22,
     metrics.canvasWidth - 48,
   );
 
@@ -2273,8 +2300,33 @@ export function renderTacticsCanvas(
   );
 
   if (
+    snapshot.screen === 'playing' &&
+    snapshot.deploymentPhase === 'CHI_SWAP' &&
+    !snapshot.dialogueScene
+  ) {
+    const pulse = 0.55 + Math.sin(timeSeconds * 4) * 0.25;
+    ctx.save();
+    for (const spawn of snapshot.deploymentSpawns) {
+      const sx = metrics.boardX + spawn.col * metrics.tileSize;
+      const sy = metrics.boardY + spawn.row * metrics.tileSize;
+      ctx.fillStyle = `rgba(45, 212, 191, ${(0.16 * pulse).toFixed(2)})`;
+      ctx.fillRect(sx + 2, sy + 2, metrics.tileSize - 4, metrics.tileSize - 4);
+      ctx.strokeStyle = `rgba(245, 158, 11, ${(0.72 * pulse).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 3, sy + 3, metrics.tileSize - 6, metrics.tileSize - 6);
+      ctx.font = '700 11px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(45, 212, 191, 0.85)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('χ', sx + 6, sy + 5);
+    }
+    ctx.restore();
+  }
+
+  if (
     selectedUnit &&
     snapshot.phase === 'player' &&
+    snapshot.deploymentPhase === 'ACTIVE' &&
     snapshot.screen === 'playing' &&
     !snapshot.dialogueScene
   ) {
@@ -2323,6 +2375,69 @@ export function renderTacticsCanvas(
       hasAura,
       timeSeconds,
     );
+  }
+
+  if (
+    snapshot.enemySightline &&
+    snapshot.screen === 'playing' &&
+    !snapshot.dialogueScene &&
+    !snapshot.battleScene
+  ) {
+    const sight = snapshot.enemySightline;
+    const fromX = metrics.boardX + (sight.from.col + 0.5) * metrics.tileSize;
+    const fromY = metrics.boardY + (sight.from.row + 0.5) * metrics.tileSize;
+    const destX =
+      metrics.boardX + (sight.destination.col + 0.5) * metrics.tileSize;
+    const destY =
+      metrics.boardY + (sight.destination.row + 0.5) * metrics.tileSize;
+    ctx.save();
+    ctx.setLineDash([7, 5]);
+    ctx.lineDashOffset = -timeSeconds * 28;
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle =
+      sight.actionType === 'attack'
+        ? 'rgba(225, 29, 72, 0.92)'
+        : 'rgba(45, 212, 191, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(destX, destY);
+    if (sight.target) {
+      const targetX =
+        metrics.boardX + (sight.target.col + 0.5) * metrics.tileSize;
+      const targetY =
+        metrics.boardY + (sight.target.row + 0.5) * metrics.tileSize;
+      ctx.lineTo(targetX, targetY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, metrics.tileSize * 0.34, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.95)';
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      const label = `TACTICAL READ → ${sight.targetName ?? 'TARGET'}`;
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      const labelW = Math.min(metrics.boardWidth - 12, ctx.measureText(label).width + 14);
+      const labelX = Math.max(
+        metrics.boardX + 4,
+        Math.min(metrics.boardX + metrics.boardWidth - labelW - 4, targetX - labelW / 2),
+      );
+      const labelY = Math.max(metrics.boardY + 4, targetY - metrics.tileSize * 0.55 - 14);
+      traceRoundedRect(ctx, labelX, labelY, labelW, 18, 5);
+      ctx.fillStyle = 'rgba(11, 16, 33, 0.94)';
+      ctx.fill();
+      ctx.strokeStyle = '#2dd4bf';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#2dd4bf';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, labelX + labelW / 2, labelY + 9);
+    } else {
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawEnemyActionTargetingOverlay(ctx, snapshot, metrics, timeSeconds);

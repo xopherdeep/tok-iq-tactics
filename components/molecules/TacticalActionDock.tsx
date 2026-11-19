@@ -5,6 +5,9 @@ import {
   Backpack,
   Check,
   Heart,
+  History,
+  Play,
+  Shuffle,
   SkipForward,
   Sparkles,
   Undo2,
@@ -22,6 +25,8 @@ interface TacticalActionDockProps {
   onEndTurn: () => void;
   onSelfHealUnit: () => void;
   onUseConsumable: (consumableId: ConsumableType) => void;
+  onConfirmChiDeployment: () => void;
+  onChronoRewind: () => void;
 }
 
 export function TacticalActionDock({
@@ -31,12 +36,46 @@ export function TacticalActionDock({
   onEndTurn,
   onSelfHealUnit,
   onUseConsumable,
+  onConfirmChiDeployment,
+  onChronoRewind,
 }: TacticalActionDockProps) {
   const [isSatchelOpen, setIsSatchelOpen] = useState(false);
 
   const isPlaying = hud.screen === 'playing';
   if (!isPlaying) {
     return null;
+  }
+
+  if (hud.deploymentPhase === 'CHI_SWAP') {
+    return (
+      <section
+        aria-label="Chi formation deployment"
+        className="relative w-full max-w-[1160px] mx-auto px-2.5 sm:px-4 pt-2 pb-2.5 sm:py-2.5 border-t border-[#332924] bg-[#0b1021]/95"
+      >
+        <div className="w-full max-w-[820px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm text-slate-300 min-w-0">
+            <Shuffle className="w-4 h-4 text-teal-300 shrink-0" />
+            <span className="truncate">
+              <strong className="text-amber-300 font-semibold">
+                χ Formation
+              </strong>{' '}
+              · Click two allies (or an open waystone) to swap starting positions
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onConfirmChiDeployment}
+            className="w-full sm:w-auto min-h-[46px] rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-[0.98] text-slate-950 font-bold text-sm px-5 py-2.5 inline-flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Play className="w-4 h-4 fill-slate-950" />
+            <span>Begin Turn 1</span>
+            <kbd className="hidden sm:inline-flex items-center justify-center rounded-md border border-slate-950/20 bg-slate-950/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase leading-none text-slate-950/85">
+              Space
+            </kbd>
+          </button>
+        </div>
+      </section>
+    );
   }
 
   const isPlayerTurn = hud.phase === 'player';
@@ -57,12 +96,12 @@ export function TacticalActionDock({
   return (
     <section
       aria-label="Turn actions"
-      className="relative w-full max-w-[1160px] mx-auto px-2.5 sm:px-4 pt-1.5 pb-2.5 sm:py-2.5 border-t border-slate-800/80 bg-[#0b1222]/95"
+      className="relative w-full max-w-[1160px] mx-auto px-2.5 sm:px-4 pt-1.5 pb-2.5 sm:py-2.5 border-t border-[#332924] bg-[#0b1021]/95"
     >
       {showSatchelTray && (
-        <div className="w-full max-w-[760px] mx-auto mb-2 rounded-2xl bg-slate-900/95 border border-emerald-400/40 p-2.5 shadow-xl">
+        <div className="w-full max-w-[820px] mx-auto mb-2 rounded-2xl bg-slate-950/95 border border-teal-400/40 p-2.5 shadow-xl">
           <div className="flex items-center justify-between gap-2 mb-2 px-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-teal-300">
               Use Item on Selected Unit
             </span>
             <button
@@ -88,13 +127,13 @@ export function TacticalActionDock({
                     type="button"
                     disabled={!isUsable}
                     onClick={() => handleSelectItem(itemId)}
-                    className="rounded-xl bg-slate-950/90 hover:bg-slate-800 border border-slate-700/90 px-2.5 py-2 text-left transition-colors disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
+                    className="rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/90 px-2.5 py-2 text-left transition-colors disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-xs font-bold text-slate-100 truncate">
                         {spec.name}
                       </span>
-                      <span className="font-mono text-[11px] font-bold text-emerald-300">
+                      <span className="font-mono tabular-nums text-[11px] font-bold text-teal-300">
                         ×{count}
                       </span>
                     </div>
@@ -112,11 +151,11 @@ export function TacticalActionDock({
       )}
 
       {hud.canSelfHealSelected && (
-        <div className="w-full max-w-[760px] mx-auto mb-2">
+        <div className="w-full max-w-[820px] mx-auto mb-2">
           <button
             type="button"
             onClick={onSelfHealUnit}
-            className="w-full min-h-[44px] rounded-xl bg-emerald-400 hover:bg-emerald-300 active:scale-[0.99] text-slate-950 font-bold text-sm px-4 py-2 inline-flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 cursor-pointer"
+            className="w-full min-h-[44px] rounded-xl bg-teal-400 hover:bg-teal-300 active:scale-[0.99] text-slate-950 font-bold text-sm px-4 py-2 inline-flex items-center justify-center gap-2 shadow-md shadow-teal-500/20 cursor-pointer"
           >
             <Heart className="w-4 h-4" />
             <span>Self-Mend</span>
@@ -124,15 +163,28 @@ export function TacticalActionDock({
         </div>
       )}
 
-      <div className="w-full max-w-[760px] mx-auto grid grid-cols-4 gap-1.5 sm:gap-3">
+      <div className="w-full max-w-[820px] mx-auto grid grid-cols-5 gap-1.5 sm:gap-2.5">
         <TacticalCtaButton
           label="Undo"
           hotkey="Z"
           tone="undo"
           onClick={onUndoMove}
           disabled={!hud.canUndoMove}
-          icon={<Undo2 className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />}
-          title="Undo pending move before attacking (Z)"
+          icon={<Undo2 className="w-4 h-4" />}
+          title="Free move undo before committing an action (Z)"
+        />
+        <TacticalCtaButton
+          label={hud.chronoUsedThisBattle ? 'Used' : 'Chrono'}
+          hotkey={hud.chronoUsedThisBattle ? undefined : '-10 IQ'}
+          tone="chrono"
+          onClick={onChronoRewind}
+          disabled={!hud.canChronoRewind || !isPlayerTurn || hud.isAnimating}
+          icon={<History className="w-4 h-4" />}
+          title={
+            hud.chronoUsedThisBattle
+              ? 'Chrono Rewind already spent this battle'
+              : 'Chrono Rewind: undo last committed combat or turn (-10 IQ, once per battle)'
+          }
         />
         <TacticalCtaButton
           label={totalConsumables > 0 ? `Items (${totalConsumables})` : 'Items'}
@@ -141,9 +193,9 @@ export function TacticalActionDock({
           disabled={!hud.canUseItemSelected}
           icon={
             isSatchelOpen ? (
-              <Sparkles className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-emerald-300" />
+              <Sparkles className="w-4 h-4 text-teal-300" />
             ) : (
-              <Backpack className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+              <Backpack className="w-4 h-4" />
             )
           }
           title="Use a Rainwater Jar or Lightning Flask"
@@ -154,7 +206,7 @@ export function TacticalActionDock({
           tone="wait"
           onClick={onWaitUnit}
           disabled={!hud.canWaitSelected}
-          icon={<Check className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />}
+          icon={<Check className="w-4 h-4" />}
           title="Hold position with selected unit (Space)"
         />
         <TacticalCtaButton
@@ -164,7 +216,7 @@ export function TacticalActionDock({
           emphasize={allUnitsHaveActed}
           onClick={onEndTurn}
           disabled={!canEndTurn}
-          icon={<SkipForward className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />}
+          icon={<SkipForward className="w-4 h-4" />}
           title="End Player Phase (E)"
         />
       </div>

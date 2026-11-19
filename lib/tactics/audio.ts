@@ -31,6 +31,10 @@ export type SoundCue =
   | 'xpTick'
   | 'levelUp'
   | 'upgradePick'
+  | 'chronoRewind'
+  | 'iqSurge'
+  | 'iqDrop'
+  | 'chiSwap'
   | 'victory'
   | 'defeat';
 
@@ -294,6 +298,23 @@ class TacticalAudioEngine {
       case 'upgradePick':
         this.playTone(440, 587.33, 0.12, 'triangle', 0.09, 0);
         this.playTone(587.33, 880, 0.24, 'sine', 0.1, 0.09);
+        break;
+      case 'chronoRewind':
+        this.playFilteredNoise('bandpass', 2400, 320, 0.28, 0.09, 2.2, 0);
+        this.playTone(980, 320, 0.22, 'sine', 0.095, 0);
+        this.playTone(340, 880, 0.24, 'triangle', 0.085, 0.14);
+        this.playTone(659.25, 1318.5, 0.2, 'sine', 0.06, 0.24);
+        break;
+      case 'iqSurge':
+        this.playTone(659.25, 880, 0.09, 'sine', 0.075, 0);
+        this.playTone(987.77, 1318.5, 0.14, 'triangle', 0.065, 0.05);
+        break;
+      case 'iqDrop':
+        this.playTone(310, 210, 0.14, 'triangle', 0.065, 0);
+        break;
+      case 'chiSwap':
+        this.playTone(420, 630, 0.065, 'triangle', 0.075, 0);
+        this.playTone(630, 840, 0.075, 'sine', 0.06, 0.04);
         break;
       case 'victory':
         this.playTone(440, 440, 0.14, 'triangle', 0.1, 0);

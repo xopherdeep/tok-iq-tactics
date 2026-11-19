@@ -48,13 +48,13 @@ function getMatchupSummary(unitClass: UnitClass): string {
     return 'Strong vs Striker & Marksman · Weak vs Arcanist';
   }
   if (unitClass === 'striker') {
-    return 'Strong vs Arcanist & Healer · Weak vs Vanguard, Ranger & Marksman';
+    return 'Triple-Bar Piercing Dash (+3 ATK · +15% HIT after 3+ tiles) · Strong vs Arcanist & Healer';
   }
   if (unitClass === 'arcanist') {
     return 'Strong vs Vanguard · Weak vs Striker & Marksman';
   }
   if (unitClass === 'ranger') {
-    return 'Anti-Air (+3 ATK vs Flyers) · Ignores Forest EVA';
+    return 'Anti-Air (+3 ATK vs Flyers) · Ignores Saguaro Grove EVA';
   }
   if (unitClass === 'marksman') {
     return 'Strong vs Arcanist, Striker & Healer · Weak vs Vanguard';
@@ -65,7 +65,7 @@ function getMatchupSummary(unitClass: UnitClass): string {
   if (unitClass === 'healer') {
     return 'Sanctuary Pulse Mend (Rng 1–3) · Weak vs Striker & Marksman';
   }
-  return 'Twin Commander Pact (+ATK to Adjacent Allies · +1 DEF when X & Sol Link)';
+  return 'Lantern Rally (+2 ATK · +10% HIT to Adjacent Allies · +1 DEF when X & Sol Link)';
 }
 
 function formatRangeText(minRange: number, maxRange: number): string {
@@ -103,10 +103,10 @@ export function CharacterInfoModal({
             exit={{opacity: 0, scale: 0.95, y: 8}}
             transition={{duration: 0.18, ease: 'easeOut'}}
             onClick={(event) => event.stopPropagation()}
-            className={`relative w-full max-w-[760px] max-h-[90dvh] overflow-y-auto tactics-scroll-sm rounded-2xl bg-[#0d1629] border shadow-2xl ${
+            className={`relative w-full max-w-[760px] max-h-[90dvh] overflow-y-auto tactics-scroll-sm rounded-2xl bg-[#0b1021] border shadow-2xl ${
               unit.faction === 'player'
-                ? 'border-sky-400/50 shadow-sky-950/60'
-                : 'border-rose-400/50 shadow-rose-950/60'
+                ? 'border-amber-400/45 shadow-amber-950/40'
+                : 'border-rose-500/50 shadow-rose-950/50'
             }`}
           >
             <button
@@ -247,19 +247,22 @@ function CharacterInfoBody({
         <div className="space-y-3.5">
           <div className="pr-10 space-y-2">
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mb-0.5">
-                <span className="font-semibold text-slate-300">
-                  {archetype.label}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400 mb-0.5">
+                <span className="font-mono text-amber-300 font-bold">
+                  {archetype.trenChessSymbol}
+                </span>
+                <span className="font-semibold text-teal-300">
+                  {archetype.xadionTitle}
                 </span>
                 <span aria-hidden="true">·</span>
-                <span>{archetype.chessAnalogue}</span>
+                <span className="text-slate-300">{archetype.label}</span>
                 <span aria-hidden="true">·</span>
                 <span
                   className={
                     isPlayer
                       ? unit.hasActed
                         ? 'text-slate-400'
-                        : 'text-sky-300 font-medium'
+                        : 'text-amber-300 font-medium'
                       : 'text-rose-300 font-medium'
                   }
                 >

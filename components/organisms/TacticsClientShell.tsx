@@ -17,7 +17,7 @@ export function TacticsClientShell() {
   return (
     <div
       suppressHydrationWarning
-      className="min-h-screen h-dvh w-full bg-[#0f172a]"
+      className="min-h-screen h-dvh w-full bg-[#0b1021]"
     >
       <TacticsGameArena />
     </div>

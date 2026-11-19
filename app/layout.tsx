@@ -17,20 +17,20 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Tales of Xadion: Birth of the Brotherhood',
+  title: 'Tales of Xadion: IQ Tactics',
   description:
-    'Twin Commanders X and Sol hold the 64 stones of the Hall Crossing in a tactical RPG set in the desert realm of Xadion.',
+    'Sixty-four waystones in the wash. Outsmart the storm. Forge the TrenChess. A Sonoran desert tactical strategy RPG set across Spring 2004 and Sevens Night 2007.',
   openGraph: {
-    title: 'Tales of Xadion: Birth of the Brotherhood',
+    title: 'Tales of Xadion: IQ Tactics',
     description:
-      'Twin Commanders X and Sol hold the 64 stones of the Hall Crossing in a tactical RPG set in the desert realm of Xadion.',
+      'Sixty-four waystones in the wash. Outsmart the storm. Forge the TrenChess.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Tales of Xadion: Birth of the Brotherhood',
+    title: 'Tales of Xadion: IQ Tactics',
     description:
-      'Twin Commanders X and Sol hold the 64 stones of the Hall Crossing in a tactical RPG set in the desert realm of Xadion.',
+      'Sixty-four waystones in the wash. Outsmart the storm. Forge the TrenChess.',
   },
 };
 
@@ -43,7 +43,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
     >
       <body
         suppressHydrationWarning
-        className="bg-[#0f172a] text-slate-100 antialiased font-sans selection:bg-sky-500/30 selection:text-sky-100"
+        className="bg-[#0b1021] text-slate-100 antialiased font-sans selection:bg-teal-400/30 selection:text-teal-100"
       >
         {children}
       </body>

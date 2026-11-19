@@ -167,6 +167,7 @@ export function calculateSingleStrikeDamage(
   effects: UpgradeEffects,
   isCounterAttack: boolean,
   tilesMoved: number,
+  playerIq = 100,
 ): {
   damage: number;
   hitChance: number;
@@ -232,12 +233,24 @@ export function calculateSingleStrikeDamage(
     pactDefenseBonus;
   const rawDamage = totalAttack - totalDefense;
   const clampedDamage = Math.max(1, rawDamage);
-  const hitChance = Math.max(55, Math.min(100, 100 - effectiveTerrainEvasion));
+  const grandmasterActive = attacker.faction === 'player' && playerIq >= 130;
+  const lanternRallyHitBonus = hasAura ? 10 : 0;
+  const piercingDashHitBonus = pierceBonus > 0 ? 15 : 0;
+  const hitBonus =
+    (grandmasterActive ? 10 : 0) + lanternRallyHitBonus + piercingDashHitBonus;
+  const critOverdriveBonus = grandmasterActive ? 10 : 0;
+  const hitChance = Math.max(
+    55,
+    Math.min(100, 100 - effectiveTerrainEvasion + hitBonus),
+  );
   const baseCrit =
     attacker.critChance ?? UNIT_ARCHETYPES[attacker.unitClass].critChance;
   const critChance = Math.max(
     0,
-    Math.min(95, baseCrit + attackerGear.critBonus + deadeyeBonus),
+    Math.min(
+      95,
+      baseCrit + attackerGear.critBonus + deadeyeBonus + critOverdriveBonus,
+    ),
   );
 
   return {
@@ -262,6 +275,7 @@ export function buildCombatForecast(
   units: Unit[],
   effects: UpgradeEffects,
   tilesMoved: number,
+  playerIq = 100,
 ): CombatForecast {
   const distance = getManhattanDistance(attackerPos, defender);
   const attackerStrike = calculateSingleStrikeDamage(
@@ -274,6 +288,7 @@ export function buildCombatForecast(
     effects,
     false,
     tilesMoved,
+    playerIq,
   );
 
   const defenderWillDie = defender.hp - attackerStrike.damage <= 0;
@@ -291,6 +306,7 @@ export function buildCombatForecast(
         effects,
         true,
         0,
+        playerIq,
       )
     : null;
 

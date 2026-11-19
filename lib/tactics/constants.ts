@@ -1,4 +1,6 @@
 import type {
+  BoardMode,
+  IqRankTier,
   PlaystyleProfile,
   TerrainType,
   Unit,
@@ -9,35 +11,105 @@ import type {
 
 export const BOARD_SIZE = 8;
 
+export const IQ_CONFIG = {
+  startingIq: 100,
+  minIq: 50,
+  cleanLethalBonus: 3,
+  masteryBonus: 2,
+  tacticalSaveBonus: 2,
+  zoneLockBonus: 2,
+  recklessExposurePenalty: -2,
+  chronoRewindCost: -10,
+  sharpStrategistThreshold: 115,
+  grandmasterThreshold: 130,
+  equinoxOracleThreshold: 150,
+} as const;
+
+export const IQ_RANK_TIERS: IqRankTier[] = [
+  {
+    label: 'Equinox Oracle',
+    shortLabel: 'Oracle',
+    minIq: 150,
+    accentHex: '#facc15',
+    perkSummary: 'Enemy Sightlines + Grandmaster +10% Hit/Crit + Peak Adaptive AI',
+  },
+  {
+    label: 'Grandmaster of the Wash',
+    shortLabel: 'Grandmaster',
+    minIq: 130,
+    accentHex: '#38bdf8',
+    perkSummary: 'Enemy Sightlines + Grandmaster +10% Hit/Crit Overdrive',
+  },
+  {
+    label: 'Sharp Strategist',
+    shortLabel: 'Strategist',
+    minIq: 115,
+    accentHex: '#34d399',
+    perkSummary: 'Hover Enemies to Reveal Intended Target Sightlines',
+  },
+  {
+    label: 'Field Tactician',
+    shortLabel: 'Tactician',
+    minIq: 100,
+    accentHex: '#cbd5e1',
+    perkSummary: 'Reach 115 IQ to unlock Enemy Sightlines',
+  },
+  {
+    label: 'Desert Recruit',
+    shortLabel: 'Recruit',
+    minIq: 0,
+    accentHex: '#fb7185',
+    perkSummary: 'Land Clean Lethals (+3 IQ) and Advantage Plays (+2 IQ)',
+  },
+];
+
+export const BOARD_MODE_META: Record<
+  BoardMode,
+  {title: string; shortLabel: string; glyph: string; description: string}
+> = {
+  dynamic: {
+    title: 'Campaign of the Wash',
+    shortLabel: 'Wash Campaign',
+    glyph: 'χ',
+    description: 'Expanding canyon boards (8×8 → 10×8 → 12×10)',
+  },
+  classic64: {
+    title: 'Tau Doctrine (64)',
+    shortLabel: 'Tau 8×8',
+    glyph: 'τ',
+    description: 'Strict 8×8 sixty-four stone arena every chapter',
+  },
+};
+
 export const PALETTE = {
-  background: '#0f172a',
-  boardFrame: '#0b1222',
-  gridBorder: '#1e293b',
-  plainsLight: '#162238',
-  plainsDark: '#121d31',
-  forestBase: '#102928',
+  background: '#0b1021',
+  boardFrame: '#070b17',
+  gridBorder: '#332924',
+  plainsLight: '#171d33',
+  plainsDark: '#12182b',
+  forestBase: '#102826',
   forestAccent: '#1f544e',
-  fortressBase: '#1e293b',
-  fortressAccent: '#475569',
-  fortressEmblem: '#d97706',
-  chasmBase: '#070d19',
-  chasmContour: '#13223b',
-  playerPrimary: '#38bdf8',
-  playerHighlight: '#e0f2fe',
-  playerDeep: '#0c4a6e',
-  enemyPrimary: '#fb7185',
+  fortressBase: '#241f2e',
+  fortressAccent: '#52443a',
+  fortressEmblem: '#f59e0b',
+  chasmBase: '#070b18',
+  chasmContour: '#153447',
+  playerPrimary: '#f59e0b',
+  playerHighlight: '#fef3c7',
+  playerDeep: '#78350f',
+  enemyPrimary: '#e11d48',
   enemyHighlight: '#ffe4e6',
-  enemyAmber: '#fbbf24',
+  enemyAmber: '#8b5cf6',
   enemyDeep: '#881337',
-  moveFill: 'rgba(56, 189, 248, 0.25)',
-  moveStroke: 'rgba(56, 189, 248, 0.72)',
-  attackFill: 'rgba(251, 113, 133, 0.3)',
-  attackStroke: 'rgba(251, 113, 133, 0.85)',
-  healFill: 'rgba(52, 211, 153, 0.28)',
-  healStroke: 'rgba(52, 211, 153, 0.88)',
-  auraColor: '#fbbf24',
+  moveFill: 'rgba(45, 212, 191, 0.24)',
+  moveStroke: 'rgba(45, 212, 191, 0.78)',
+  attackFill: 'rgba(225, 29, 72, 0.30)',
+  attackStroke: 'rgba(225, 29, 72, 0.88)',
+  healFill: 'rgba(45, 212, 191, 0.30)',
+  healStroke: 'rgba(45, 212, 191, 0.90)',
+  auraColor: '#f59e0b',
   xpColor: '#a78bfa',
-  healColor: '#34d399',
+  healColor: '#2dd4bf',
   rangerColor: '#4ade80',
   marksmanColor: '#38bdf8',
   healerColor: '#2dd4bf',
@@ -45,8 +117,8 @@ export const PALETTE = {
   textPrimary: '#f8fafc',
   textSecondary: '#94a3b8',
   textMuted: '#64748b',
-  panelSurface: 'rgba(15, 23, 42, 0.95)',
-  panelBorder: '#334155',
+  panelSurface: 'rgba(11, 16, 33, 0.96)',
+  panelBorder: '#332924',
 } as const;
 
 export const INITIAL_XP_TO_LEVEL = 50;
@@ -64,50 +136,52 @@ export interface TerrainMetadata {
 
 export const TERRAIN_CONFIG: Record<TerrainType, TerrainMetadata> = {
   plains: {
-    label: 'Red-Rock Flats',
-    battlefieldTitle: 'SONORAN RED-ROCK FLATS',
+    label: 'Sun-Baked Wash',
+    battlefieldTitle: 'TWILIGHT SONORAN WASH',
     moveCost: 1,
     defenseBonus: 0,
     evasionBonus: 0,
     healRatio: 0,
     groundPassable: true,
-    summary: 'Open desert · 1 MOV',
+    summary: 'Open desert · 1 MOV · 0 DEF',
   },
   forest: {
-    label: 'Saguaro Grove',
-    battlefieldTitle: 'SAGUARO & MESQUITE GROVE',
+    label: 'Saguaro & Mesquite Grove',
+    battlefieldTitle: 'MOONLIT SAGUARO GLADE',
     moveCost: 2,
     defenseBonus: 1,
     evasionBonus: 20,
     healRatio: 0,
     groundPassable: true,
-    summary: '+1 DEF · +20% EVA · 2 MOV',
+    summary: '+1 DEF · +20% EVA · 2 MOV (1 Flyer)',
   },
   fortress: {
-    label: 'Waystation Stone',
-    battlefieldTitle: 'HALL OF THE GODS MASONRY',
+    label: 'Hall Rampart',
+    battlefieldTitle: 'HALL OF THE GODS CROSSING',
     moveCost: 1,
     defenseBonus: 2,
-    evasionBonus: 0,
+    evasionBonus: 10,
     healRatio: 0.15,
     groundPassable: true,
-    summary: '+2 DEF · Heals 15% HP',
+    summary: '+2 DEF · +10% EVA · Heals 15% HP',
   },
   chasm: {
-    label: 'Flooded Wash',
-    battlefieldTitle: 'MONSOON ARROYO WASH',
+    label: 'Flooded Arroyo',
+    battlefieldTitle: 'MONSOON-CUT CANYON BRIDGE',
     moveCost: 1,
     defenseBonus: 0,
     evasionBonus: 0,
     healRatio: 0,
     groundPassable: false,
-    summary: 'Impassable · Flyers & Ranged only',
+    summary: 'Flyers & Ranged only · 0 DEF',
   },
 };
 
 export interface UnitArchetypeConfig {
   label: string;
   chessAnalogue: string;
+  trenChessSymbol: string;
+  xadionTitle: string;
   traitSummary: string;
   maxHp: number;
   attack: number;
@@ -128,7 +202,9 @@ export interface UnitArchetypeConfig {
 export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   vanguard: {
     label: 'Vanguard',
-    chessAnalogue: 'Pawn / Knight',
+    chessAnalogue: 'Rook · Zone Lock',
+    trenChessSymbol: '♖',
+    xadionTitle: 'Twilight Warden',
     traitSummary: 'Zone of Control · Strong vs Striker & Marksman',
     maxHp: 24,
     attack: 8,
@@ -147,7 +223,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   striker: {
     label: 'Striker',
-    chessAnalogue: 'Bishop / Rook',
+    chessAnalogue: 'Knight · Sky Flanker',
+    trenChessSymbol: '♘',
+    xadionTitle: 'Shadow Dragoon',
     traitSummary: 'Flyer · Piercing Dash · Strong vs Arcanist & Healer',
     maxHp: 17,
     attack: 9,
@@ -166,7 +244,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   arcanist: {
     label: 'Arcanist',
-    chessAnalogue: 'Queen / Mage',
+    chessAnalogue: 'Bishop · Chrono Weaver',
+    trenChessSymbol: '♗',
+    xadionTitle: 'Light Seer',
     traitSummary: 'Range 2–3 · Ignores Terrain · Strong vs Vanguard',
     maxHp: 15,
     attack: 9,
@@ -185,7 +265,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   sovereign: {
     label: 'Commander',
-    chessAnalogue: 'Twin Pact Leader',
+    chessAnalogue: 'King · Twin Pact',
+    trenChessSymbol: '♔',
+    xadionTitle: 'Twin Sovereign',
     traitSummary:
       'Twin Pact · If either falls, pact breaks · Adjacent bond grants +ATK & +1 DEF',
     maxHp: 26,
@@ -205,7 +287,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   cleric: {
     label: 'Cleric',
-    chessAnalogue: 'Dawn Oracle',
+    chessAnalogue: 'Oracle · Cistern Mender',
+    trenChessSymbol: '✦',
+    xadionTitle: 'Lantern Mender',
     traitSummary: 'Heals allies (Rng 1–2) · Radiant Bolt',
     maxHp: 18,
     attack: 6,
@@ -224,7 +308,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   ranger: {
     label: 'Ranger',
-    chessAnalogue: 'Longbow Sentinel',
+    chessAnalogue: 'Sentinel · Anti-Air',
+    trenChessSymbol: '⟁',
+    xadionTitle: 'Nimbus Thornbow',
     traitSummary: 'Range 2–4 · Anti-Air (+3 vs Flyers) · True Sight',
     maxHp: 16,
     attack: 8,
@@ -243,7 +329,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   marksman: {
     label: 'Marksman',
-    chessAnalogue: 'Sniper / Siege',
+    chessAnalogue: 'Queen · Astral Siege',
+    trenChessSymbol: '◎',
+    xadionTitle: 'Astral Deadeye',
     traitSummary:
       'Range 3–5 · Deadeye Focus (+20% CRIT if stationary) · Strong vs Arcanist & Striker',
     maxHp: 14,
@@ -263,7 +351,9 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
   },
   healer: {
     label: 'Healer',
-    chessAnalogue: 'Life Weaver',
+    chessAnalogue: 'Druid · Living Oak',
+    trenChessSymbol: '❀',
+    xadionTitle: 'Sacred Mender',
     traitSummary:
       'Sanctuary Pulse (Rng 1–3, +4 HP splash to adjacent allies) · Low DEF',
     maxHp: 15,
@@ -287,8 +377,8 @@ export const INITIAL_UPGRADE_EFFECTS: UpgradeEffects = {
   vanguardBonusMove: 0,
   counterBonusDamage: 0,
   arcanistBonusAttack: 0,
-  sovereignAuraAttack: 1,
-  strikerPierceBonus: 2,
+  sovereignAuraAttack: 2,
+  strikerPierceBonus: 3,
   clericBonusHeal: 0,
   rangerBonusAttack: 0,
   marksmanBonusAttack: 0,

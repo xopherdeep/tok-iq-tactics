@@ -146,7 +146,9 @@ export function chooseBestEnemyDecision(
   units: Unit[],
   effects: UpgradeEffects,
   doctrine: DominantDoctrine,
+  playerIq = 100,
 ): EnemyDecision {
+  const aiIqTier = playerIq >= 130 ? 2 : playerIq >= 115 ? 1 : 0;
   const playerUnits = units.filter(
     (unit) => unit.faction === 'player' && unit.hp > 0,
   );
@@ -262,6 +264,7 @@ export function chooseBestEnemyDecision(
         units,
         effects,
         tilesMoved,
+        playerIq,
       );
 
       let attackScore = terrainScore;
@@ -275,25 +278,37 @@ export function chooseBestEnemyDecision(
         : 0;
 
       if (forecast.defenderWillDie) {
-        attackScore += target.unitClass === 'sovereign' ? 260 : 125;
+        attackScore +=
+          target.unitClass === 'sovereign'
+            ? 260 + aiIqTier * 40
+            : 125 + aiIqTier * 22;
       }
 
       if (forecast.attackerWillDie) {
-        attackScore -= enemy.unitClass === 'sovereign' ? 240 : 75;
+        attackScore -= enemy.unitClass === 'sovereign' ? 240 : 75 + aiIqTier * 12;
       }
 
       if (forecast.attackerOutcome === 'advantage') {
-        attackScore += 26;
+        attackScore += 26 + aiIqTier * 8;
       } else if (forecast.attackerOutcome === 'disadvantage') {
-        attackScore -= 14;
+        attackScore -= 14 + aiIqTier * 6;
       }
 
       if (forecast.attackerDeadeyeBonus > 0) {
-        attackScore += 12;
+        attackScore += 12 + aiIqTier * 6;
       }
 
       if (!forecast.defenderCanCounter) {
-        attackScore += 18;
+        attackScore += 18 + aiIqTier * 8;
+      }
+
+      if (aiIqTier >= 1) {
+        const missingRatio = 1 - target.hp / Math.max(1, target.maxHp);
+        attackScore += missingRatio * (aiIqTier === 2 ? 32 : 18);
+        const targetTile = board[target.row]?.[target.col];
+        if (targetTile && targetTile.terrain === 'plains') {
+          attackScore += aiIqTier * 8;
+        }
       }
 
       attackScore += expectedDamage * 5.2 - expectedCounter * 4.1;

@@ -6,21 +6,25 @@ export function getStageIntroDialogue(
   boardMode: BoardMode,
 ): DialogueLine[] {
   if (stageNumber === 1) {
+    const doctrineNote =
+      boardMode === 'classic64'
+        ? 'Under Tau Doctrine (τ), all sixty-four waystones lock into the classic 8×8 crossing.'
+        : 'Swap your formation on the χ waystones before Turn 1—every clean lethal raises our Tactics IQ.';
     return [
       {
         speakerName: 'The River',
         speakerTitle: 'Spirit of the Dry Wash · Spring 2004',
         speakerClass: 'healer',
         speakerFaction: 'player',
-        text: 'Riverrun returns to the dry wash, Keeper. When the first monsoon rises, older things than rain cross the Hall stones.',
+        text: 'Riverrun returns to the dry wash, Keeper. The Ricorso monsoon gathers above the Hall—sixty-four waystones stand between the storm and your sleeping children.',
         voicePitch: 'high',
       },
       {
         speakerName: 'X, The Keeper',
-        speakerTitle: 'Twin Commander · Hall of the Gods',
+        speakerTitle: 'Equinox Sovereign · Hall of the Gods',
         speakerClass: 'sovereign',
         speakerFaction: 'player',
-        text: 'Chairs up, lamps trimmed, cistern full. The children are asleep upstairs—nothing crosses this footbridge tonight.',
+        text: `Chairs up, lamps trimmed, cistern full. ${doctrineNote}`,
         voicePitch: 'low',
       },
       {
@@ -28,7 +32,7 @@ export function getStageIntroDialogue(
         speakerTitle: 'Twin Commander · Solar Paladin',
         speakerClass: 'sovereign',
         speakerFaction: 'player',
-        text: 'Stand shoulder to shoulder with me, X. Our Brotherhood Pact shields us both (+ATK and +1 DEF when adjacent)—if either of us falls, the oath breaks.',
+        text: 'Stand beside me for Lantern Rally (+2 ATK, +10% HIT) and our Twin Pact shield (+1 DEF). If either Commander falls, the Brotherhood breaks.',
         voicePitch: 'mid',
       },
       {
@@ -36,7 +40,7 @@ export function getStageIntroDialogue(
         speakerTitle: 'Monsoon Stalker · Wash Vanguard',
         speakerClass: 'sovereign',
         speakerFaction: 'enemy',
-        text: 'Two lantern-bearers on sixty-four stones! Let the dust wraiths split them apart and snuff the Hall out before dawn!',
+        text: 'Two lanterns on sixty-four stones! Let the dust wraiths split them apart before the Sevens Night storm even arrives!',
         voicePitch: 'low',
       },
     ];
@@ -45,32 +49,32 @@ export function getStageIntroDialogue(
   if (stageNumber === 2) {
     const scaleNote =
       boardMode === 'dynamic'
-        ? 'The arroyo widens across an 80-stone crossing—lantern pylons and flooded channels cut the pass.'
-        : 'Twin waystation arches hold the narrow crossing above the rising floodwaters.';
+        ? 'The Campaign of the Wash widens across an 80-stone crossing—lantern pylons and flooded channels cut the pass.'
+        : 'Tau Doctrine (τ) holds the narrow 64-stone ramparts above the rising floodwaters.';
 
     return [
       {
         speakerName: 'Infinidee',
-        speakerTitle: 'Time Mage · Sevens Night 2007',
+        speakerTitle: 'Light Seer (♗) · Sevens Night 2007',
         speakerClass: 'arcanist',
         speakerFaction: 'player',
-        text: `${scaleNote} My Chrono runes slip straight past desert masonry—let the storm titans hide behind stone if they dare.`,
+        text: `${scaleNote} My Chrono runes pierce desert masonry, and once per battle I can anchor a Chrono Rewind (-10 IQ) if the line buckles.`,
         voicePitch: 'high',
       },
       {
         speakerName: 'Gaea',
-        speakerTitle: 'Basin Druid · Living Oak',
+        speakerTitle: 'Sacred Mender (❀) · Living Oak',
         speakerClass: 'healer',
         speakerFaction: 'player',
-        text: 'My healing dew reaches three paces across the wash. Keep X and Sol upright—every lantern on this road depends on the Twin Pact.',
+        text: 'My Healing Dew reaches across the wash. Save a comrade below 35% HP for a Tactical Save (+2 IQ), and never leave our line exposed on open sand.',
         voicePitch: 'high',
       },
       {
-        speakerName: 'Slumbering Titan',
-        speakerTitle: 'Awakened Stone · Arroyo Crossing',
+        speakerName: 'Black Knight',
+        speakerTitle: 'Void Dread Vanguard · Sevens Night',
         speakerClass: 'sovereign',
         speakerFaction: 'enemy',
-        text: 'Mortals built fences and forgot the dry wash. Tonight the Flood reclaims every road and roof.',
+        text: 'Mortals built fences and forgot the dry wash. Test your sharpest strategy against obsidian steel!',
         voicePitch: 'low',
       },
     ];
@@ -78,15 +82,15 @@ export function getStageIntroDialogue(
 
   const counterSpeechByDoctrine: Record<DominantDoctrine, string> = {
     arcane:
-      'Your rune-casters and crescent bows have ruled the mesa long enough. Dust Wraiths—sweep their flanks before they channel!',
+      'Your Light Seers and Thornbows have dictated the wash long enough. Dust Wraiths—sweep their flanks before they channel!',
     guerrilla:
-      'Hiding among saguaros and waystation walls will not save the Brotherhood. Storm Cantors, burn through their cover!',
+      'Hiding in the Saguaro Groves will not save the Brotherhood. Storm Cantors, burn through their cover!',
     blitz:
-      'Your swift flankers think the monsoon winds belong to them. Lightning Eyes—pin them down behind our Stone Brutes!',
+      'Your Shadow Dragoons think the twilight skies belong to them. Lightning Eyes—pin them down behind our Stone Brutes!',
     phalanx:
-      'Holding the Twin Pact tight behind shields? Our Storm Cantors will shatter your front while Wash Spirits mend the tide.',
+      'Holding the Twin Pact tight behind Twilight Wardens? Our Storm Cantors will shatter your wall while Wash Spirits mend the tide.',
     balanced:
-      'The Brotherhood marches in full harmony across Xadion. Answer them with every spirit of the turning Age!',
+      'Your Tactics IQ climbs across Xadion. Answer the Brotherhood with every counter-doctrine of the turning Age!',
   };
 
   return [
@@ -95,7 +99,7 @@ export function getStageIntroDialogue(
       speakerTitle:
         stageNumber >= 5
           ? 'Anvil Cloud Sovereign · Ricorso'
-          : `Stage ${stageNumber} · Monsoon Herald`,
+          : `Stage ${stageNumber} · Storm Tactician`,
       speakerClass: 'sovereign',
       speakerFaction: 'enemy',
       text: counterSpeechByDoctrine[doctrine],
@@ -103,18 +107,18 @@ export function getStageIntroDialogue(
     },
     {
       speakerName: 'Luna',
-      speakerTitle: 'Astral Ranger · Crescent Bow',
-      speakerClass: 'marksman',
+      speakerTitle: 'Shadow Dragoon (♘) · Crescent Lance',
+      speakerClass: 'striker',
       speakerFaction: 'player',
-      text: 'The anvil clouds read our last formation, Commanders. Watch their healers and keep both sovereign banners alive.',
+      text: 'At 115 IQ we read their sightlines before they strike; at 130 IQ our Grandmaster precision breaks any storm wall.',
       voicePitch: 'high',
     },
     {
       speakerName: 'X, The Keeper',
-      speakerTitle: 'Twin Commander · Hall of the Gods',
+      speakerTitle: 'Equinox Sovereign (♔) · Hall of the Gods',
       speakerClass: 'sovereign',
       speakerFaction: 'player',
-      text: 'Water for strangers, and a bar for anyone who brings trouble. Sol—with me. Hold the sixty-four stones!',
+      text: 'Water for strangers, and a bar for anyone who brings trouble. Outsmart the storm—hold the sixty-four waystones!',
       voicePitch: 'low',
     },
   ];
@@ -128,7 +132,7 @@ export function getBossEngagementDialogue(
     return [
       {
         speakerName: enemyBossName,
-        speakerTitle: 'Monsoon Alpha',
+        speakerTitle: 'Monsoon Alpha · Commander Clash',
         speakerClass: 'sovereign',
         speakerFaction: 'enemy',
         text: 'You broke through my pack?! Face the storm front yourself, Keeper!',
@@ -136,7 +140,7 @@ export function getBossEngagementDialogue(
       },
       {
         speakerName: 'X, The Keeper',
-        speakerTitle: 'Twin Commander · Hall of the Gods',
+        speakerTitle: 'Equinox Sovereign · Hall of the Gods',
         speakerClass: 'sovereign',
         speakerFaction: 'player',
         text: 'The Hall stands till morning. Turn back into the dry wash or fall where you stand!',
@@ -145,13 +149,34 @@ export function getBossEngagementDialogue(
     ];
   }
 
+  if (stageNumber === 2 || stageNumber === 3) {
+    return [
+      {
+        speakerName: enemyBossName,
+        speakerTitle: 'Sevens Night Commander Clash',
+        speakerClass: 'sovereign',
+        speakerFaction: 'enemy',
+        text: 'Your IQ tactics mean nothing when obsidian steel cleaves the crossing!',
+        voicePitch: 'low',
+      },
+      {
+        speakerName: 'X, The Keeper',
+        speakerTitle: 'Equinox Sovereign · Hall of the Gods',
+        speakerClass: 'sovereign',
+        speakerFaction: 'player',
+        text: 'Every stone we hold tonight becomes a piece on a greater board. Stand fast, Sol!',
+        voicePitch: 'low',
+      },
+    ];
+  }
+
   return [
     {
       speakerName: enemyBossName,
-      speakerTitle: 'Storm Sovereign',
+      speakerTitle: 'Ricorso Storm Sovereign · Commander Clash',
       speakerClass: 'sovereign',
       speakerFaction: 'enemy',
-      text: 'The Age turns back to Flood and Lightning. One broken Commander ends your Brotherhood forever!',
+      text: 'The Age turns back to Flood and Lightning! One fallen Commander shatters your Brotherhood forever!',
       voicePitch: 'low',
     },
     {
@@ -159,13 +184,34 @@ export function getBossEngagementDialogue(
       speakerTitle: 'Twin Commander · Solar Paladin',
       speakerClass: 'sovereign',
       speakerFaction: 'player',
-      text: 'Then strike at both of us—our light does not dim in the monsoon!',
+      text: 'Then strike at both of us—our lantern light outlasts every monsoon in Xadion!',
       voicePitch: 'mid',
     },
   ];
 }
 
 export function getStageVictoryDialogue(stageNumber: number): DialogueLine[] {
+  if (stageNumber >= 5) {
+    return [
+      {
+        speakerName: 'The River',
+        speakerTitle: 'Spirit of the Dry Wash · Epilogue',
+        speakerClass: 'healer',
+        speakerFaction: 'player',
+        text: 'The anvil clouds part over sixty-four sunlit waystones. Every crossing you defended—King, Rook, Knight, Bishop, Jumper, and Queen—now remembers its shape.',
+        voicePitch: 'high',
+      },
+      {
+        speakerName: 'X, The Keeper',
+        speakerTitle: 'Equinox Sovereign · Forge of TrenChess',
+        speakerClass: 'sovereign',
+        speakerFaction: 'player',
+        text: 'Let the children wake to running water and clear skies. Carve these sixty-four stones in memory of the Brotherhood—this is where TrenChess begins.',
+        voicePitch: 'low',
+      },
+    ];
+  }
+
   if (stageNumber === 1) {
     return [
       {
@@ -173,15 +219,15 @@ export function getStageVictoryDialogue(stageNumber: number): DialogueLine[] {
         speakerTitle: 'Spirit of the Dry Wash',
         speakerClass: 'healer',
         speakerFaction: 'player',
-        text: 'Dawn breaks in a rainbow over running water. The footbridge holds—yet deeper storms gather beyond the red-rock basin.',
+        text: 'Dawn breaks in a rainbow over running water. The footbridge holds—yet Sevens Night gathers beyond the red-rock basin.',
         voicePitch: 'high',
       },
       {
         speakerName: 'X, The Keeper',
-        speakerTitle: 'Twin Commander · Hall of the Gods',
+        speakerTitle: 'Equinox Sovereign · Hall of the Gods',
         speakerClass: 'sovereign',
         speakerFaction: 'player',
-        text: 'Good work, Brotherhood. Check the sleeping children, claim a boon from the wash, and rally at the Hall common room.',
+        text: 'Well played, Brotherhood. Review our IQ report, claim a boon from the wash, and rally at the Hall common room.',
         voicePitch: 'low',
       },
     ];
@@ -190,10 +236,10 @@ export function getStageVictoryDialogue(stageNumber: number): DialogueLine[] {
   return [
     {
       speakerName: 'Gaea',
-      speakerTitle: 'Basin Druid · Living Oak',
+      speakerTitle: 'Sacred Mender · Living Oak',
       speakerClass: 'healer',
       speakerFaction: 'player',
-      text: `The crossing is quiet again. Let me pour rainwater dew for the wounded while X and Sol claim our next Brotherhood Boon.`,
+      text: 'The wash grows calm beneath lantern gold. Let me pour Healing Dew for the squad while X and Sol claim our next Brotherhood Boon.',
       voicePitch: 'high',
     },
   ];

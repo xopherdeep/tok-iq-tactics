@@ -30,6 +30,16 @@ import {
   getStageVictoryDialogue,
 } from './dialogueScripts';
 import {chooseBestEnemyDecision} from './enemyAi';
+import {
+  createInitialIqState,
+  describeIqCounterDoctrine,
+  evaluatePlayerCombatIq,
+  evaluatePlayerHealIq,
+  evaluatePlayerPositioningIq,
+  getIqRankTier,
+  hasSharpStrategistSightline,
+  recordIqDelta,
+} from './iqSystem';
 import {applyCombatXpToUnit, applySupportXpToUnit} from './leveling';
 import {
   canUnitEquipItem,
@@ -61,8 +71,11 @@ import type {
   BattleSceneState,
   BoardMode,
   CampaignSaveData,
+  ChronoRewindSnapshot,
+  CombatForecast,
   ConsumableInventory,
   ConsumableType,
+  DeploymentPhase,
   DialogueLine,
   DifficultyMode,
   EquipmentSlot,
@@ -99,11 +112,16 @@ interface PendingBattleContext {
   primaryApplied: boolean;
   counterApplied: boolean;
   xpApplied: boolean;
+  forecast?: CombatForecast;
+  allyHpBeforeHeal?: number;
+  counterDamageTaken: number;
   onComplete: () => void;
 }
 
 export interface HudSummary {
   screen: GameSnapshot['screen'];
+  boardMode: BoardMode;
+  deploymentPhase: DeploymentPhase;
   stageNumber: number;
   stageTitle: string;
   boardCols: number;
@@ -133,6 +151,14 @@ export interface HudSummary {
   recruitedTavernIds: string[];
   lastVictoryReward: VictoryRewardBanner | null;
   twinCommanders: TwinCommanderStatus[];
+  iqCurrent: number;
+  iqPeak: number;
+  iqRankLabel: string;
+  iqRankAccent: string;
+  iqLastDelta: number | null;
+  iqLastReason: string | null;
+  canChronoRewind: boolean;
+  chronoUsedThisBattle: boolean;
 }
 
 function readSavedCampaign(): CampaignSaveData | null {
@@ -239,12 +265,14 @@ export class TacticsGameController {
   private consumables: ConsumableInventory = {...INITIAL_CONSUMABLES};
   private recruitedTavernIds: string[] = [];
   private lastVictoryReward: VictoryRewardBanner | null = null;
+  private chronoSnapshot: ChronoRewindSnapshot | null = null;
   private onHudChange: (hud: HudSummary) => void;
 
   constructor(onHudChange: (hud: HudSummary) => void) {
     this.onHudChange = onHudChange;
     const saved = readSavedCampaign();
     const initialMode: BoardMode = saved?.boardMode ?? 'dynamic';
+    const initialIqState = createInitialIqState(saved?.iqRating, saved?.peakIq);
     const initialOrientation: ViewportOrientation =
       typeof window !== 'undefined' &&
       window.innerHeight > window.innerWidth * 1.05
@@ -280,7 +308,10 @@ export class TacticsGameController {
       acquiredUpgradeTitles: [],
       playstyle: {...INITIAL_PLAYSTYLE},
       dominantDoctrine: 'balanced',
-      adaptationNote: describeAdaptation('balanced'),
+      adaptationNote: describeIqCounterDoctrine(
+        'balanced',
+        initialIqState.current,
+      ),
       stageCallout: initialBlueprint.calloutText,
       upgradeChoices: [],
       hoveredCanvasButtonId: null,
@@ -294,6 +325,11 @@ export class TacticsGameController {
       dialogueScene: null,
       battleScene: null,
       shakeMagnitude: 0,
+      deploymentPhase: 'ACTIVE',
+      deploymentSpawns: [],
+      iqState: initialIqState,
+      enemySightline: null,
+      canChronoRewind: false,
       stats: {
         enemiesDefeated: 0,
         stagesCleared: 0,
@@ -326,6 +362,7 @@ export class TacticsGameController {
     const isInteractiveTurn =
       this.snapshot.screen === 'playing' &&
       this.snapshot.phase === 'player' &&
+      this.snapshot.deploymentPhase === 'ACTIVE' &&
       !this.isBusy &&
       this.snapshot.dialogueScene === null;
     const isReadyPlayerSelected =
@@ -360,8 +397,18 @@ export class TacticsGameController {
           hasBrotherhoodPactBond(unit, unit, this.snapshot.units),
       }));
 
+    const iqTier = getIqRankTier(this.snapshot.iqState.current);
+    const canChronoRewind =
+      isInteractiveTurn &&
+      this.chronoSnapshot !== null &&
+      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.snapshot.iqState.current >= 10;
+    this.snapshot.canChronoRewind = canChronoRewind;
+
     return {
       screen: this.snapshot.screen,
+      boardMode: this.snapshot.boardMode,
+      deploymentPhase: this.snapshot.deploymentPhase,
       stageNumber: this.snapshot.stageNumber,
       stageTitle: this.snapshot.stageTitle,
       boardCols: this.snapshot.boardCols,
@@ -391,6 +438,14 @@ export class TacticsGameController {
       recruitedTavernIds: [...this.recruitedTavernIds],
       lastVictoryReward: this.lastVictoryReward,
       twinCommanders,
+      iqCurrent: this.snapshot.iqState.current,
+      iqPeak: this.snapshot.iqState.peak,
+      iqRankLabel: iqTier.label,
+      iqRankAccent: iqTier.accentHex,
+      iqLastDelta: this.snapshot.iqState.lastDelta,
+      iqLastReason: this.snapshot.iqState.lastReason,
+      canChronoRewind,
+      chronoUsedThisBattle: this.snapshot.iqState.chronoUsedThisBattle,
     };
   }
 
@@ -542,6 +597,8 @@ export class TacticsGameController {
       playstyle: {...this.snapshot.playstyle},
       nextUnitCounter: this.nextUnitCounter,
       stats: {...this.snapshot.stats},
+      iqRating: this.snapshot.iqState.current,
+      peakIq: this.snapshot.iqState.peak,
       roster: this.campaignRoster.map((unit) => ({
         ...unit,
         tempAttackBonus: 0,
@@ -557,6 +614,10 @@ export class TacticsGameController {
     }
     this.snapshot.boardMode = mode;
     tacticalAudio.play('select');
+    if (this.campaignRoster.length > 0) {
+      this.persistCampaignCheckpoint();
+    }
+    this.emitHud();
   }
 
   public setViewportOrientation(orientation: ViewportOrientation): void {
@@ -1044,7 +1105,13 @@ export class TacticsGameController {
     this.snapshot.acquiredUpgradeTitles = [];
     this.snapshot.playstyle = {...INITIAL_PLAYSTYLE};
     this.snapshot.dominantDoctrine = 'balanced';
-    this.snapshot.adaptationNote = describeAdaptation('balanced');
+    this.snapshot.iqState = createInitialIqState();
+    this.chronoSnapshot = null;
+    this.snapshot.canChronoRewind = false;
+    this.snapshot.adaptationNote = describeIqCounterDoctrine(
+      'balanced',
+      this.snapshot.iqState.current,
+    );
     this.snapshot.stats = {
       enemiesDefeated: 0,
       stagesCleared: 0,
@@ -1153,6 +1220,9 @@ export class TacticsGameController {
     this.snapshot.acquiredUpgradeTitles = [...saved.acquiredUpgradeTitles];
     this.snapshot.playstyle = {...INITIAL_PLAYSTYLE, ...saved.playstyle};
     this.snapshot.stats = {...saved.stats};
+    this.snapshot.iqState = createInitialIqState(saved.iqRating, saved.peakIq);
+    this.chronoSnapshot = null;
+    this.snapshot.canChronoRewind = false;
     this.nextUnitCounter = saved.nextUnitCounter ?? 10;
     this.campaignRoster = saved.roster.map((unit) => ({
       ...unit,
@@ -1342,7 +1412,25 @@ export class TacticsGameController {
     this.snapshot.healableAllyIds = new Set();
     this.snapshot.pendingMove = null;
     this.snapshot.dominantDoctrine = doctrine;
-    this.snapshot.adaptationNote = describeAdaptation(doctrine);
+    this.snapshot.iqState = {
+      ...this.snapshot.iqState,
+      chronoUsedThisBattle: false,
+      lastDelta: null,
+      lastReason: null,
+      history: [],
+    };
+    this.chronoSnapshot = null;
+    this.snapshot.canChronoRewind = false;
+    this.snapshot.deploymentPhase = 'CHI_SWAP';
+    this.snapshot.deploymentSpawns = deployedPlayers.map((unit) => ({
+      col: unit.col,
+      row: unit.row,
+    }));
+    this.snapshot.enemySightline = null;
+    this.snapshot.adaptationNote = describeIqCounterDoctrine(
+      doctrine,
+      this.snapshot.iqState.current,
+    );
     this.snapshot.stageCallout = blueprint.calloutText;
     this.snapshot.floatingCallouts = [];
     this.snapshot.projectiles = [];
@@ -1363,19 +1451,220 @@ export class TacticsGameController {
       () => {
         tacticalAudio.play('turnPlayer');
         this.snapshot.phaseBanner = {
-          title: blueprint.title.toUpperCase(),
-          subtitle: blueprint.subtitle,
-          accentColor: PALETTE.playerPrimary,
+          title: 'χ CHI FORMATION',
+          subtitle: 'Swap allies on glowing waystones, then Begin Turn 1',
+          accentColor: PALETTE.healColor,
           age: 0,
-          duration: 1.45,
+          duration: 1.55,
         };
         this.emitHud();
       },
     );
   }
 
+  public confirmChiDeployment(): void {
+    if (
+      this.snapshot.screen !== 'playing' ||
+      this.snapshot.deploymentPhase !== 'CHI_SWAP' ||
+      this.snapshot.dialogueScene !== null ||
+      this.isBusy
+    ) {
+      return;
+    }
+    this.snapshot.deploymentPhase = 'ACTIVE';
+    this.snapshot.selectedUnitId = null;
+    this.inspectedUnitId = null;
+    tacticalAudio.play('turnPlayer');
+    this.snapshot.phaseBanner = {
+      title: 'TURN 1 · PLAYER PHASE',
+      subtitle: `${this.snapshot.stageTitle} · ${this.snapshot.adaptationNote}`,
+      accentColor: PALETTE.playerPrimary,
+      age: 0,
+      duration: 1.35,
+    };
+    this.emitHud();
+  }
+
+  private captureChronoSnapshot(): void {
+    this.chronoSnapshot = {
+      units: this.snapshot.units.map((unit) => ({...unit})),
+      turnNumber: this.snapshot.turnNumber,
+      phase: this.snapshot.phase,
+      playstyle: {...this.snapshot.playstyle},
+      consumables: {...this.consumables},
+      stats: {...this.snapshot.stats},
+      iqCurrent: this.snapshot.iqState.current,
+      iqPeak: this.snapshot.iqState.peak,
+      iqHistory: this.snapshot.iqState.history.map((entry) => ({...entry})),
+    };
+    this.snapshot.canChronoRewind =
+      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.snapshot.iqState.current >= 10;
+  }
+
+  public triggerChronoRewind(): void {
+    const canRewind =
+      this.snapshot.screen === 'playing' &&
+      this.snapshot.phase === 'player' &&
+      this.snapshot.deploymentPhase === 'ACTIVE' &&
+      !this.isBusy &&
+      this.snapshot.dialogueScene === null &&
+      this.chronoSnapshot !== null &&
+      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.snapshot.iqState.current >= 10;
+    if (!canRewind || !this.chronoSnapshot) {
+      tacticalAudio.play('cancel');
+      return;
+    }
+
+    const snap = this.chronoSnapshot;
+    this.clearScheduledTimeouts();
+    this.activeMoveAnimation = null;
+    this.battleContext = null;
+    this.snapshot.battleScene = null;
+    this.snapshot.units = snap.units.map((unit) => ({
+      ...unit,
+      renderX: unit.col,
+      renderY: unit.row,
+      lungeOffsetX: 0,
+      lungeOffsetY: 0,
+      hitFlashTimer: 0,
+    }));
+    this.snapshot.turnNumber = snap.turnNumber;
+    this.snapshot.phase = 'player';
+    this.snapshot.playstyle = {...snap.playstyle};
+    this.consumables = {...snap.consumables};
+    this.snapshot.stats = {...snap.stats};
+    this.snapshot.pendingMove = null;
+    this.snapshot.selectedUnitId = null;
+    this.inspectedUnitId = null;
+    this.snapshot.reachableTiles = new Map();
+    this.snapshot.threatenedTileKeys = new Set();
+    this.snapshot.attackableEnemyIds = new Set();
+    this.snapshot.healableAllyIds = new Set();
+    this.snapshot.enemySightline = null;
+    this.chronoSnapshot = null;
+
+    const restoredIqState = {
+      ...this.snapshot.iqState,
+      current: snap.iqCurrent,
+      peak: snap.iqPeak,
+      history: snap.iqHistory,
+      chronoUsedThisBattle: true,
+    };
+    this.snapshot.iqState = recordIqDelta(
+      restoredIqState,
+      -10,
+      'Chrono Rewind',
+      this.snapshot.turnNumber,
+    );
+    this.snapshot.canChronoRewind = false;
+    this.snapshot.adaptationNote = describeIqCounterDoctrine(
+      this.snapshot.dominantDoctrine,
+      this.snapshot.iqState.current,
+    );
+
+    const anchorUnit = this.snapshot.units.find(
+      (unit) => unit.faction === 'player' && unit.hp > 0,
+    );
+    if (anchorUnit) {
+      this.spawnShockwave(anchorUnit.col, anchorUnit.row, PALETTE.healColor);
+      this.spawnFloatingCallout(
+        anchorUnit.col,
+        anchorUnit.row,
+        '-10 IQ · CHRONO',
+        PALETTE.healColor,
+      );
+    }
+
+    tacticalAudio.play('chronoRewind');
+    this.snapshot.phaseBanner = {
+      title: 'CHRONO REWIND',
+      subtitle: '-10 IQ · Timeline restored before your last action',
+      accentColor: PALETTE.healColor,
+      age: 0,
+      duration: 1.4,
+    };
+    this.emitHud();
+  }
+
+  private applyIqAdjustment(
+    delta: number,
+    reason: string,
+    anchorCoord?: GridCoord,
+  ): void {
+    if (delta === 0) {
+      return;
+    }
+    this.snapshot.iqState = recordIqDelta(
+      this.snapshot.iqState,
+      delta,
+      reason,
+      this.snapshot.turnNumber,
+    );
+    this.snapshot.adaptationNote = describeIqCounterDoctrine(
+      this.snapshot.dominantDoctrine,
+      this.snapshot.iqState.current,
+    );
+    tacticalAudio.play(delta > 0 ? 'iqSurge' : 'iqDrop');
+    if (anchorCoord) {
+      const sign = delta > 0 ? '+' : '';
+      this.spawnFloatingCallout(
+        anchorCoord.col,
+        anchorCoord.row,
+        `${sign}${delta} IQ · ${reason}`,
+        delta > 0 ? PALETTE.healColor : PALETTE.enemyPrimary,
+      );
+    }
+    this.emitHud();
+  }
+
   public setHoveredTile(coord: GridCoord | null): void {
     this.snapshot.hoveredTile = coord;
+    if (
+      !coord ||
+      this.snapshot.screen !== 'playing' ||
+      this.snapshot.dialogueScene !== null ||
+      this.snapshot.battleScene !== null ||
+      !hasSharpStrategistSightline(this.snapshot.iqState.current)
+    ) {
+      this.snapshot.enemySightline = null;
+      return;
+    }
+
+    const hoveredEnemy = getUnitAtCoord(
+      this.snapshot.units,
+      coord.col,
+      coord.row,
+    );
+    if (!hoveredEnemy || hoveredEnemy.faction !== 'enemy' || hoveredEnemy.hp <= 0) {
+      this.snapshot.enemySightline = null;
+      return;
+    }
+
+    const decision = chooseBestEnemyDecision(
+      hoveredEnemy,
+      this.snapshot.board,
+      this.snapshot.units,
+      this.snapshot.effects,
+      this.snapshot.dominantDoctrine,
+      this.snapshot.iqState.current,
+    );
+    const targetUnit = decision.targetId
+      ? this.snapshot.units.find(
+          (unit) => unit.id === decision.targetId && unit.hp > 0,
+        )
+      : undefined;
+    this.snapshot.enemySightline = {
+      enemyId: hoveredEnemy.id,
+      enemyName: hoveredEnemy.name,
+      targetId: targetUnit?.id ?? null,
+      targetName: targetUnit?.name ?? null,
+      from: {col: hoveredEnemy.col, row: hoveredEnemy.row},
+      destination: decision.destination,
+      target: targetUnit ? {col: targetUnit.col, row: targetUnit.row} : null,
+      actionType: decision.actionType,
+    };
   }
 
   public setHoveredCanvasButton(buttonId: string | null): void {
@@ -1431,6 +1720,11 @@ export class TacticsGameController {
         return;
       }
       this.returnToTitle();
+      return;
+    }
+
+    if (buttonId === 'chi:begin') {
+      this.confirmChiDeployment();
       return;
     }
 
@@ -1502,6 +1796,79 @@ export class TacticsGameController {
       coord.row,
     );
     const selectedUnit = this.getSelectedUnit();
+
+    if (this.snapshot.deploymentPhase === 'CHI_SWAP') {
+      if (clickedUnit && clickedUnit.faction === 'player') {
+        if (!selectedUnit || selectedUnit.faction !== 'player') {
+          this.snapshot.selectedUnitId = clickedUnit.id;
+          tacticalAudio.play('select');
+          this.emitHud();
+          return;
+        }
+        if (selectedUnit.id === clickedUnit.id) {
+          this.inspectedUnitId = clickedUnit.id;
+          tacticalAudio.play('select');
+          this.emitHud();
+          return;
+        }
+        const prevCol = selectedUnit.col;
+        const prevRow = selectedUnit.row;
+        selectedUnit.col = clickedUnit.col;
+        selectedUnit.row = clickedUnit.row;
+        selectedUnit.renderX = clickedUnit.col;
+        selectedUnit.renderY = clickedUnit.row;
+        clickedUnit.col = prevCol;
+        clickedUnit.row = prevRow;
+        clickedUnit.renderX = prevCol;
+        clickedUnit.renderY = prevRow;
+        this.snapshot.selectedUnitId = null;
+        this.inspectedUnitId = null;
+        tacticalAudio.play('chiSwap');
+        this.spawnShockwave(selectedUnit.col, selectedUnit.row, PALETTE.healColor);
+        this.spawnShockwave(clickedUnit.col, clickedUnit.row, PALETTE.auraColor);
+        this.spawnFloatingCallout(
+          selectedUnit.col,
+          selectedUnit.row,
+          'χ SWAP',
+          PALETTE.healColor,
+        );
+        this.emitHud();
+        return;
+      }
+
+      const isSpawnTile = this.snapshot.deploymentSpawns.some(
+        (spawn) => spawn.col === coord.col && spawn.row === coord.row,
+      );
+      if (
+        isSpawnTile &&
+        !clickedUnit &&
+        selectedUnit &&
+        selectedUnit.faction === 'player'
+      ) {
+        selectedUnit.col = coord.col;
+        selectedUnit.row = coord.row;
+        selectedUnit.renderX = coord.col;
+        selectedUnit.renderY = coord.row;
+        this.snapshot.selectedUnitId = null;
+        tacticalAudio.play('chiSwap');
+        this.spawnShockwave(coord.col, coord.row, PALETTE.healColor);
+        this.emitHud();
+        return;
+      }
+
+      if (clickedUnit && clickedUnit.faction === 'enemy') {
+        this.inspectedUnitId = clickedUnit.id;
+        tacticalAudio.play('select');
+        this.emitHud();
+        return;
+      }
+
+      this.snapshot.selectedUnitId = null;
+      this.inspectedUnitId = null;
+      this.emitHud();
+      return;
+    }
+
     const isReadyPlayerSelected =
       selectedUnit !== undefined &&
       selectedUnit.faction === 'player' &&
@@ -1512,6 +1879,7 @@ export class TacticsGameController {
       clickedUnit &&
       this.snapshot.healableAllyIds.has(clickedUnit.id)
     ) {
+      this.captureChronoSnapshot();
       this.inspectedUnitId = null;
       this.executeHealSequence(selectedUnit, clickedUnit, () => {
         this.finalizePlayerUnitTurn(selectedUnit, false, true);
@@ -1524,6 +1892,7 @@ export class TacticsGameController {
       clickedUnit &&
       this.snapshot.attackableEnemyIds.has(clickedUnit.id)
     ) {
+      this.captureChronoSnapshot();
       this.inspectedUnitId = null;
       const startCombat = () => {
         this.executeCombatSequence(selectedUnit, clickedUnit, () => {
@@ -1802,6 +2171,7 @@ export class TacticsGameController {
       return;
     }
 
+    this.captureChronoSnapshot();
     this.inspectedUnitId = null;
     const gear = computeUnitEquipmentBonuses(selectedUnit);
     const healPower = selectedUnit.healPower + gear.healBonus;
@@ -1873,6 +2243,7 @@ export class TacticsGameController {
       return;
     }
 
+    this.captureChronoSnapshot();
     this.inspectedUnitId = null;
     this.consumables = {
       ...this.consumables,
@@ -1953,7 +2324,10 @@ export class TacticsGameController {
 
     const doctrine = determineDominantDoctrine(this.snapshot.playstyle);
     this.snapshot.dominantDoctrine = doctrine;
-    this.snapshot.adaptationNote = describeAdaptation(doctrine);
+    this.snapshot.adaptationNote = describeIqCounterDoctrine(
+      doctrine,
+      this.snapshot.iqState.current,
+    );
   }
 
   private finalizePlayerUnitTurn(
@@ -1972,6 +2346,16 @@ export class TacticsGameController {
 
     if (unit.hp > 0) {
       this.recordPlayerActionTelemetry(unit, attacked, healed);
+      const posIqEval = evaluatePlayerPositioningIq(
+        unit,
+        this.snapshot.board,
+        this.snapshot.units,
+        this.snapshot.effects,
+        this.snapshot.iqState.current,
+      );
+      if (posIqEval) {
+        this.applyIqAdjustment(posIqEval.delta, posIqEval.reason, unit);
+      }
     }
 
     if (this.checkBattleOutcome()) {
@@ -1995,12 +2379,14 @@ export class TacticsGameController {
     const canEndTurn =
       this.snapshot.screen === 'playing' &&
       this.snapshot.phase === 'player' &&
+      this.snapshot.deploymentPhase === 'ACTIVE' &&
       !this.isBusy &&
       this.snapshot.dialogueScene === null;
     if (!canEndTurn) {
       return;
     }
 
+    this.captureChronoSnapshot();
     for (const unit of this.snapshot.units) {
       if (unit.faction === 'player' && unit.hp > 0 && !unit.hasActed) {
         this.recordPlayerActionTelemetry(unit, false, false);
@@ -2109,6 +2495,7 @@ export class TacticsGameController {
       this.snapshot.units,
       this.snapshot.effects,
       this.snapshot.dominantDoctrine,
+      this.snapshot.iqState.current,
     );
 
     const plannedTarget = decision.targetId
@@ -2379,6 +2766,8 @@ export class TacticsGameController {
       primaryApplied: false,
       counterApplied: true,
       xpApplied: false,
+      allyHpBeforeHeal: ally.hp,
+      counterDamageTaken: 0,
       onComplete: onDone,
     };
 
@@ -2392,6 +2781,7 @@ export class TacticsGameController {
     onDone: () => void,
   ): void {
     this.isBusy = true;
+    const playerIq = this.snapshot.iqState.current;
     const forecast = buildCombatForecast(
       attacker,
       attacker,
@@ -2400,6 +2790,7 @@ export class TacticsGameController {
       this.snapshot.units,
       this.snapshot.effects,
       attacker.tilesMovedThisTurn,
+      playerIq,
     );
 
     const primaryHit =
@@ -2440,6 +2831,23 @@ export class TacticsGameController {
           : forecast.attackerOutcome === 'advantage'
             ? 'WEAPON ADVANTAGE!'
             : null;
+
+    const isHighIqLethal =
+      attacker.faction === 'player' &&
+      playerIq >= 125 &&
+      !defenderSurvivesPrimary;
+    const cutInText = primaryCrit
+      ? attacker.faction === 'player'
+        ? `${attacker.name.toUpperCase()} · EQUINOX CRIT!`
+        : `${attacker.name.toUpperCase()} · STORM CRIT!`
+      : isHighIqLethal
+        ? `${attacker.name.toUpperCase()} · CLEAN LETHAL (+3 IQ)`
+        : null;
+    const cutInTone: 'gold' | 'cyan' | null = primaryCrit
+      ? 'gold'
+      : isHighIqLethal
+        ? 'cyan'
+        : null;
 
     const matchupSubline = primaryCrit
       ? forecast.attackerDeadeyeBonus > 0
@@ -2495,6 +2903,8 @@ export class TacticsGameController {
       levelUpPillarAge: 0,
       xpTickCooldown: 0,
       floatingNumbers: [],
+      cutInText,
+      cutInTone,
       sparks: [],
     };
 
@@ -2504,6 +2914,8 @@ export class TacticsGameController {
       primaryApplied: false,
       counterApplied: false,
       xpApplied: false,
+      forecast,
+      counterDamageTaken: actualCounterDamage,
       onComplete: onDone,
     };
 
@@ -2921,9 +3333,42 @@ export class TacticsGameController {
 
   private finishBattleScene(): void {
     const ctx = this.battleContext;
+    const wasHealScene = this.snapshot.battleScene?.isHealScene ?? false;
     this.snapshot.battleScene = null;
     this.battleContext = null;
     this.isBusy = false;
+
+    if (ctx && ctx.attacker.faction === 'player') {
+      if (wasHealScene) {
+        const healEval = evaluatePlayerHealIq(
+          ctx.attacker,
+          ctx.defender,
+          ctx.allyHpBeforeHeal ?? ctx.defender.hp,
+        );
+        if (healEval) {
+          this.applyIqAdjustment(healEval.delta, healEval.reason, ctx.defender);
+        }
+      } else if (ctx.forecast) {
+        const attackerTile =
+          this.snapshot.board[ctx.attacker.row]?.[ctx.attacker.col];
+        const combatEval = evaluatePlayerCombatIq(
+          ctx.attacker,
+          ctx.defender,
+          ctx.forecast,
+          ctx.defender.hp <= 0,
+          ctx.counterDamageTaken,
+          attackerTile,
+        );
+        if (combatEval) {
+          this.applyIqAdjustment(
+            combatEval.delta,
+            combatEval.reason,
+            ctx.attacker,
+          );
+        }
+      }
+    }
+
     this.emitHud();
     if (ctx) {
       ctx.onComplete();

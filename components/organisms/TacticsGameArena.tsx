@@ -21,6 +21,7 @@ import {
 import {INITIAL_CONSUMABLES, STARTING_GOLD} from '@/lib/tactics/rpgCatalog';
 import {spriteAtlas} from '@/lib/tactics/spriteAtlas';
 import type {
+  BoardMode,
   ConsumableType,
   DifficultyMode,
   EquipmentSlot,
@@ -72,6 +73,16 @@ const DEFAULT_HUD: HudSummary = {
   recruitedTavernIds: [],
   lastVictoryReward: null,
   twinCommanders: [],
+  boardMode: 'dynamic',
+  deploymentPhase: 'ACTIVE',
+  iqCurrent: 100,
+  iqPeak: 100,
+  iqRankLabel: 'Field Tactician',
+  iqRankAccent: '#cbd5e1',
+  iqLastDelta: null,
+  iqLastReason: null,
+  canChronoRewind: false,
+  chronoUsedThisBattle: false,
 };
 
 export function TacticsGameArena() {
@@ -188,6 +199,14 @@ export function TacticsGameArena() {
 
       if (key === 'escape') {
         controller.dismissInspectedUnit();
+        return;
+      }
+
+      if (controller.getSnapshot().deploymentPhase === 'CHI_SWAP') {
+        if (key === ' ' || key === 'enter') {
+          event.preventDefault();
+          controller.confirmChiDeployment();
+        }
         return;
       }
 
@@ -379,6 +398,18 @@ export function TacticsGameArena() {
     controllerRef.current?.setDifficulty(difficulty);
   }, []);
 
+  const handleSetBoardMode = useCallback((mode: BoardMode) => {
+    controllerRef.current?.setBoardMode(mode);
+  }, []);
+
+  const handleConfirmChiDeployment = useCallback(() => {
+    controllerRef.current?.confirmChiDeployment();
+  }, []);
+
+  const handleChronoRewind = useCallback(() => {
+    controllerRef.current?.triggerChronoRewind();
+  }, []);
+
   const handleDismissRewardBanner = useCallback(() => {
     controllerRef.current?.dismissVictoryRewardBanner();
   }, []);
@@ -442,7 +473,7 @@ export function TacticsGameArena() {
   const isCanvasVisible = !isWorldMapScreen && !isPartyPrepScreen;
 
   return (
-    <div className="min-h-screen h-dvh w-full bg-[#0f172a] text-slate-100 flex flex-col overflow-hidden">
+    <div className="min-h-screen h-dvh w-full bg-[#0b1021] text-slate-100 flex flex-col overflow-hidden">
       <TacticalHudBar
         hud={hud}
         isMuted={isMuted}
@@ -459,6 +490,7 @@ export function TacticsGameArena() {
           onOpenPartyPrep={handleOpenPartyPrep}
           onDeployActiveChapter={handleDeployActiveChapter}
           onSetDifficulty={handleSetDifficulty}
+          onSetBoardMode={handleSetBoardMode}
           onDismissRewardBanner={handleDismissRewardBanner}
         />
       )}
@@ -493,7 +525,7 @@ export function TacticsGameArena() {
           onPointerLeave={handlePointerLeave}
           onPointerDown={handlePointerDown}
           onContextMenu={handleContextMenu}
-          aria-label="Tales of Xadion: Birth of the Brotherhood tactical game board"
+          aria-label="Tales of Xadion: IQ Tactics game board"
           className="block touch-none select-none"
         />
       </main>
@@ -505,6 +537,8 @@ export function TacticsGameArena() {
         onEndTurn={handleEndTurn}
         onSelfHealUnit={handleSelfHealUnit}
         onUseConsumable={handleUseConsumable}
+        onConfirmChiDeployment={handleConfirmChiDeployment}
+        onChronoRewind={handleChronoRewind}
       />
 
       {isCanvasVisible && (
@@ -512,6 +546,8 @@ export function TacticsGameArena() {
           adaptationNote={hud.adaptationNote}
           acquiredUpgradeTitles={hud.acquiredUpgradeTitles}
           showActiveMeta={hud.screen !== 'title'}
+          boardMode={hud.boardMode}
+          iqCurrent={hud.iqCurrent}
         />
       )}
 

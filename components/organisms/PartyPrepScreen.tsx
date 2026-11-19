@@ -206,11 +206,23 @@ export function PartyPrepScreen({
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-amber-300 text-sm">
+                            {archetype.trenChessSymbol}
+                          </span>
                           <span className="font-bold text-sm sm:text-base text-slate-50 truncate">
                             {unit.name}
                           </span>
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/35 text-amber-300 font-mono text-[10px] font-bold">
+                          <span className="font-mono tabular-nums text-[11px] font-bold text-amber-300">
                             LV {unit.level}
+                          </span>
+                          <span aria-hidden="true" className="text-slate-600">
+                            ·
+                          </span>
+                          <span className="text-[11px] text-teal-300/90 font-medium">
+                            {archetype.xadionTitle}
+                          </span>
+                          <span aria-hidden="true" className="text-slate-600">
+                            ·
                           </span>
                           <span className="text-[11px] text-slate-400">
                             {archetype.label}
@@ -329,12 +341,18 @@ export function PartyPrepScreen({
                     />
                   </div>
                   <div>
-                    <h2 className="text-base font-bold text-slate-50">
-                      {selectedHero.name}
+                    <h2 className="text-base font-bold text-slate-50 flex items-center gap-1.5">
+                      <span className="font-mono text-amber-300">
+                        {UNIT_ARCHETYPES[selectedHero.unitClass].trenChessSymbol}
+                      </span>
+                      <span>{selectedHero.name}</span>
                     </h2>
-                    <p className="text-xs text-slate-400">
-                      {UNIT_ARCHETYPES[selectedHero.unitClass].label} · LV{' '}
-                      {selectedHero.level} ({selectedHero.xp}/
+                    <p className="text-xs text-teal-300/90 font-medium">
+                      {UNIT_ARCHETYPES[selectedHero.unitClass].xadionTitle} ·{' '}
+                      {UNIT_ARCHETYPES[selectedHero.unitClass].label}
+                    </p>
+                    <p className="text-[11px] text-slate-400 font-mono tabular-nums">
+                      LV {selectedHero.level} ({selectedHero.xp}/
                       {selectedHero.xpToNextLevel} XP)
                     </p>
                   </div>
@@ -499,11 +517,14 @@ export function PartyPrepScreen({
                       <UnitSpritePortrait unitClass={offer.unitClass} size={60} />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-slate-50">
-                        {offer.name}
+                      <h3 className="text-sm font-bold text-slate-50 flex items-center gap-1.5">
+                        <span className="font-mono text-amber-300">
+                          {archetype.trenChessSymbol}
+                        </span>
+                        <span>{offer.name}</span>
                       </h3>
-                      <p className="text-xs text-sky-300 font-medium">
-                        {archetype.label} · {offer.title}
+                      <p className="text-xs text-teal-300 font-medium">
+                        {archetype.xadionTitle} · {archetype.label}
                       </p>
                       <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                         {offer.summary}

@@ -20,7 +20,7 @@ import {
 } from '@/lib/tactics/chapters';
 import type {HudSummary} from '@/lib/tactics/gameController';
 import {getEquipmentById} from '@/lib/tactics/rpgCatalog';
-import type {DifficultyMode} from '@/lib/tactics/types';
+import type {BoardMode, DifficultyMode} from '@/lib/tactics/types';
 import overworldMapAsset from '@/src/assets/images/xadion_world_map_1795126867661.jpg';
 
 interface WorldMapScreenProps {
@@ -29,6 +29,7 @@ interface WorldMapScreenProps {
   onOpenPartyPrep: (chapterId?: string) => void;
   onDeployActiveChapter: () => void;
   onSetDifficulty: (difficulty: DifficultyMode) => void;
+  onSetBoardMode: (mode: BoardMode) => void;
   onDismissRewardBanner: () => void;
 }
 
@@ -38,6 +39,7 @@ export function WorldMapScreen({
   onOpenPartyPrep,
   onDeployActiveChapter,
   onSetDifficulty,
+  onSetBoardMode,
   onDismissRewardBanner,
 }: WorldMapScreenProps) {
   const activeChapter = getChapterById(hud.activeChapterId);
@@ -57,37 +59,71 @@ export function WorldMapScreen({
 
   return (
     <div className="flex-1 w-full max-w-[1160px] mx-auto overflow-y-auto tactics-scroll px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 px-3.5 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl bg-[#111936]/90 border border-[#332924] px-3.5 py-2.5">
         <div className="flex items-center gap-2.5">
-          <Compass className="w-5 h-5 text-sky-400 shrink-0" />
+          <Compass className="w-5 h-5 text-amber-400 shrink-0" />
           <div>
             <h1 className="text-sm sm:text-base font-bold text-slate-50 leading-tight">
               Xadion · Hall of the Gods
             </h1>
-            <p className="text-[11px] sm:text-xs text-slate-400">
-              Chapters {completedStoryCount}/{totalStoryCount} · Brotherhood{' '}
-              {hud.campaignRoster.length} Champions
+            <p className="text-[11px] sm:text-xs text-slate-400 font-mono tabular-nums">
+              Chapters {completedStoryCount}/{totalStoryCount} · IQ{' '}
+              <span className="text-teal-300 font-semibold">
+                {hud.iqCurrent}
+              </span>{' '}
+              ({hud.iqRankLabel}) · {hud.campaignRoster.length} Champions
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 border border-amber-400/35 px-3 py-1.5 text-xs font-mono font-bold text-amber-300">
-            <Coins className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-mono tabular-nums font-bold text-amber-300">
+            <Coins className="w-3.5 h-3.5 text-amber-400" />
             <span>{hud.gold}g</span>
           </div>
 
           <div
             role="group"
+            aria-label="Board doctrine"
+            className="inline-flex rounded-xl bg-slate-950 border border-[#332924] p-0.5 text-xs"
+          >
+            <button
+              type="button"
+              onClick={() => onSetBoardMode('dynamic')}
+              title="Campaign of the Wash: expanding grids (8x8 to 12x10)"
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                hud.boardMode === 'dynamic'
+                  ? 'bg-amber-400 text-slate-950'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              χ Wash
+            </button>
+            <button
+              type="button"
+              onClick={() => onSetBoardMode('classic64')}
+              title="Tau Doctrine: strict 8x8 64-waystone TrenChess board"
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                hud.boardMode === 'classic64'
+                  ? 'bg-teal-400 text-slate-950'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              τ 64
+            </button>
+          </div>
+
+          <div
+            role="group"
             aria-label="Campaign difficulty"
-            className="inline-flex rounded-xl bg-slate-950 border border-slate-800 p-0.5 text-xs"
+            className="inline-flex rounded-xl bg-slate-950 border border-[#332924] p-0.5 text-xs"
           >
             <button
               type="button"
               onClick={() => onSetDifficulty('story')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 hud.difficulty === 'story'
-                  ? 'bg-emerald-400 text-slate-950'
+                  ? 'bg-teal-400 text-slate-950'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -96,9 +132,9 @@ export function WorldMapScreen({
             <button
               type="button"
               onClick={() => onSetDifficulty('tactical')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 hud.difficulty === 'tactical'
-                  ? 'bg-rose-400 text-slate-950'
+                  ? 'bg-rose-500 text-white'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -109,10 +145,10 @@ export function WorldMapScreen({
           <button
             type="button"
             onClick={() => onOpenPartyPrep()}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-sky-400/40 px-3 py-1.5 text-xs font-semibold text-sky-200 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-400/40 px-3 py-1.5 text-xs font-semibold text-amber-200 transition-colors whitespace-nowrap cursor-pointer"
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Hall & Armory</span>
+            <span>Hall &amp; Armory</span>
           </button>
         </div>
       </div>
