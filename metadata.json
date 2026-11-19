@@ -1,0 +1,6 @@
+{
+  "name": "Tactics: 64",
+  "description": "Sixty-four squares, four distinct classes, and zero room for a wasted turn. A minimalist HTML5 Canvas tactical strategy game.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

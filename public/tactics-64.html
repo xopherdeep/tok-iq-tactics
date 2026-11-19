@@ -1,0 +1,1300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tactics: 64</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  .shell { display: flex; flex-direction: column; height: 100dvh; width: 100%; }
+  .topbar, .bottombar {
+    width: 100%;
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 10px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .topbar { border-bottom: 1px solid #1e293b; }
+  .bottombar { border-top: 1px solid #1e293b; font-size: 12px; color: #94a3b8; }
+  .brand-row { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .brand { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+  .meta {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #94a3b8; font-variant-numeric: tabular-nums;
+  }
+  .meta strong { color: #e2e8f0; font-weight: 600; }
+  .phase-player { color: #38bdf8; font-weight: 700; }
+  .phase-enemy { color: #fb7185; font-weight: 700; }
+  .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  button {
+    appearance: none; border: 1px solid #334155; background: #1e293b; color: #f8fafc;
+    font-size: 12px; font-weight: 600; padding: 7px 12px; border-radius: 7px;
+    cursor: pointer; white-space: nowrap; transition: background-color 140ms ease, opacity 140ms ease;
+  }
+  button:hover:not(:disabled) { background: #334155; }
+  button:disabled { opacity: 0.38; cursor: not-allowed; }
+  button.primary { background: #38bdf8; border-color: #7dd3fc; color: #082f49; }
+  button.primary:hover:not(:disabled) { background: #7dd3fc; }
+  button.ghost { background: transparent; border-color: transparent; color: #cbd5e1; }
+  button.ghost:hover:not(:disabled) { background: #1e293b; }
+  .stage-wrap {
+    flex: 1; min-height: 0; width: 100%; max-width: 1160px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  canvas { display: block; touch-action: none; user-select: none; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .cyan { color: #7dd3fc; }
+  .amber { color: #fbbf24; }
+  .emerald { color: #34d399; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand-row">
+      <span class="brand">Tactics: 64</span>
+      <div id="hudMeta" class="meta"></div>
+    </div>
+    <div class="actions">
+      <button id="btnUndo" type="button" disabled>Undo Move</button>
+      <button id="btnWait" type="button" disabled>Wait</button>
+      <button id="btnEndTurn" type="button" class="primary" disabled>End Turn</button>
+      <button id="btnMute" type="button" class="ghost">Sound</button>
+      <button id="btnRestart" type="button" class="ghost" style="display:none;">Restart</button>
+    </div>
+  </header>
+  <main id="stageWrap" class="stage-wrap">
+    <canvas id="gameCanvas" aria-label="Tactics: 64 board"></canvas>
+  </main>
+  <footer class="bottombar">
+    <div class="mono">
+      <span class="cyan">Vanguard</span> &gt; <span class="cyan">Striker</span> &gt; <span class="cyan">Arcanist</span> &gt; <span class="cyan">Vanguard</span>
+      <span> · </span>
+      <span class="amber">Sovereign +1 ATK Aura</span>
+    </div>
+    <div id="footerRight" class="mono">Z Undo · Space Wait · E End Turn · Right-Click Cancel</div>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const BOARD_SIZE = 8;
+  const INITIAL_XP = 50;
+  const PALETTE = {
+    bg: '#0f172a',
+    border: '#1e293b',
+    player: '#38bdf8',
+    playerHi: '#e0f2fe',
+    enemy: '#fb7185',
+    enemyHi: '#ffe4e6',
+    amber: '#fbbf24',
+    xp: '#a78bfa',
+    heal: '#34d399',
+    moveStroke: 'rgba(56, 189, 248, 0.72)',
+    atkFill: 'rgba(251, 113, 133, 0.30)',
+    text: '#f8fafc',
+    sub: '#94a3b8',
+    muted: '#64748b',
+    panel: 'rgba(15, 23, 42, 0.95)',
+    panelBorder: '#334155'
+  };
+
+  const TERRAIN = {
+    plains: { label: 'Plains', moveCost: 1, def: 0, eva: 0, heal: 0, passable: true, summary: 'Open ground · 1 MOV' },
+    forest: { label: 'Forest', moveCost: 2, def: 1, eva: 20, heal: 0, passable: true, summary: '+1 DEF · +20% EVA · 2 MOV' },
+    fortress: { label: 'Fortress', moveCost: 1, def: 2, eva: 0, heal: 0.15, passable: true, summary: '+2 DEF · Heals 15% HP' },
+    chasm: { label: 'Chasm', moveCost: 1, def: 0, eva: 0, heal: 0, passable: false, summary: 'Impassable · Flyers & Ranged only' }
+  };
+
+  const ARCHETYPES = {
+    vanguard: { label: 'Vanguard', trait: 'Zone of Control · Strong vs Striker', hp: 24, atk: 8, def: 3, mov: 3, minR: 1, maxR: 1, fly: false, ignoreTerrain: false, zoc: true },
+    striker: { label: 'Striker', trait: 'Flyer · Piercing Dash · Strong vs Arcanist', hp: 17, atk: 9, def: 1, mov: 5, minR: 1, maxR: 1, fly: true, ignoreTerrain: false, zoc: false },
+    arcanist: { label: 'Arcanist', trait: 'Range 2–3 · Ignores Terrain · Strong vs Vanguard', hp: 15, atk: 9, def: 1, mov: 3, minR: 2, maxR: 3, fly: false, ignoreTerrain: true, zoc: false },
+    sovereign: { label: 'Sovereign', trait: 'Must survive · Adjacent allies gain ATK aura', hp: 26, atk: 8, def: 2, mov: 3, minR: 1, maxR: 1, fly: false, ignoreTerrain: false, zoc: false }
+  };
+
+  const UPGRADES = [
+    { id: 'vanguard-march', title: 'Vanguard March', tag: 'Mobility', summary: '+1 Move range for all Vanguards.', apply(units, fx) { fx.vanguardMove += 1; units.forEach(u => { if (u.faction === 'player' && u.cls === 'vanguard') u.mov += 1; }); } },
+    { id: 'riposte', title: 'Riposte Doctrine', tag: 'Defense', summary: 'Your counter-attacks deal +2 bonus damage.', apply(units, fx) { fx.counterBonus += 2; } },
+    { id: 'triage', title: 'Field Triage', tag: 'Recovery', summary: 'Heal all surviving units for 50% of Max HP.', apply(units) { units.forEach(u => { if (u.faction === 'player') u.hp = Math.min(u.maxHp, u.hp + Math.ceil(u.maxHp * 0.5)); }); } },
+    { id: 'arcane-focus', title: 'Arcane Focus', tag: 'Offense', summary: '+2 Attack for all Arcanists.', apply(units, fx) { fx.arcanistAtk += 2; units.forEach(u => { if (u.faction === 'player' && u.cls === 'arcanist') u.atk += 2; }); } },
+    { id: 'banner', title: 'Sovereign Banner', tag: 'Command', summary: 'Sovereign aura grants an extra +1 Attack.', apply(units, fx) { fx.auraAtk += 1; } },
+    { id: 'momentum', title: 'Piercing Momentum', tag: 'Offense', summary: 'Striker dash attacks (3+ tiles) deal +2 extra damage.', apply(units, fx) { fx.pierceBonus += 2; } },
+    { id: 'bastion', title: 'Iron Bastion', tag: 'Vitality', summary: 'All Player units gain +4 Max HP and restore 4 HP.', apply(units, fx) { fx.bonusMaxHp += 4; units.forEach(u => { if (u.faction === 'player') { u.maxHp += 4; u.hp = Math.min(u.maxHp, u.hp + 4); } }); } },
+    { id: 'stride', title: 'Woodland Stride', tag: 'Terrain', summary: 'Forest tiles cost only 1 Movement for your squad.', apply(units, fx) { fx.forestStride = true; } }
+  ];
+
+  const EXTRA_MAPS = [
+    ['........', '.F.R..F.', '..WW.WW.', '.F....F.', '....R...', '.WW..WW.', '.F....F.', '........'],
+    ['........', '..F..R..', '.W.FF.W.', 'R......R', '..W..W..', '.F.FF.F.', '....R...', '........'],
+    ['........', '.R.FF.R.', '....W...', '.WW...W.', '.F..R.F.', '...WW...', '.F....F.', '........']
+  ];
+
+  const ENEMY_NAMES = {
+    sovereign: ['Crimson Sovereign', 'Iron Monarch', 'Obsidian Regent'],
+    vanguard: ['Bastion Guard', 'Red Shield', 'Bulwark Knight'],
+    striker: ['Talon Lancer', 'Gale Raider', 'Crimson Edge'],
+    arcanist: ['Cinder Magus', 'Star Weaver', 'Ember Seer']
+  };
+
+  class SynthAudio {
+    constructor() { this.ctx = null; this.muted = false; }
+    ensure() {
+      if (this.muted) return null;
+      if (!this.ctx) {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
+        this.ctx = new Ctor();
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
+    }
+    tone(f0, f1, dur, type, vol, delay = 0) {
+      const ctx = this.ensure();
+      if (!ctx) return;
+      const t = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, t);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(t); osc.stop(t + dur + 0.02);
+    }
+    play(cue) {
+      if (cue === 'select') this.tone(540, 680, 0.07, 'triangle', 0.08);
+      else if (cue === 'move') this.tone(260, 390, 0.11, 'sine', 0.07);
+      else if (cue === 'undo') this.tone(420, 280, 0.09, 'triangle', 0.07);
+      else if (cue === 'hit') { this.tone(210, 82, 0.14, 'sawtooth', 0.11); this.tone(480, 180, 0.08, 'triangle', 0.07); }
+      else if (cue === 'heavy') { this.tone(150, 48, 0.24, 'sawtooth', 0.16); this.tone(320, 90, 0.18, 'square', 0.09); }
+      else if (cue === 'arcane') { this.tone(620, 960, 0.16, 'sine', 0.09); this.tone(880, 440, 0.2, 'triangle', 0.07, 0.06); }
+      else if (cue === 'miss') this.tone(360, 240, 0.12, 'sine', 0.05);
+      else if (cue === 'heal') { this.tone(440, 660, 0.16, 'sine', 0.08); this.tone(660, 880, 0.18, 'sine', 0.07, 0.09); }
+      else if (cue === 'levelUp') { this.tone(523, 523, 0.11, 'triangle', 0.11, 0); this.tone(659, 659, 0.11, 'triangle', 0.11, 0.08); this.tone(784, 784, 0.13, 'triangle', 0.12, 0.16); this.tone(1046, 1046, 0.28, 'sine', 0.13, 0.24); }
+      else if (cue === 'victory') { this.tone(440, 440, 0.15, 'triangle', 0.1, 0); this.tone(554, 554, 0.15, 'triangle', 0.1, 0.11); this.tone(659, 659, 0.28, 'triangle', 0.12, 0.22); }
+      else if (cue === 'defeat') { this.tone(320, 260, 0.2, 'sawtooth', 0.09, 0); this.tone(240, 140, 0.34, 'sawtooth', 0.1, 0.16); }
+    }
+  }
+
+  const audio = new SynthAudio();
+  const canvas = document.getElementById('gameCanvas');
+  const stageWrap = document.getElementById('stageWrap');
+  const hudMeta = document.getElementById('hudMeta');
+  const footerRight = document.getElementById('footerRight');
+  const btnUndo = document.getElementById('btnUndo');
+  const btnWait = document.getElementById('btnWait');
+  const btnEndTurn = document.getElementById('btnEndTurn');
+  const btnMute = document.getElementById('btnMute');
+  const btnRestart = document.getElementById('btnRestart');
+  const ctx = canvas.getContext('2d');
+
+  let canvasW = 800;
+  let canvasH = 640;
+  let hitBoxes = [];
+  let timers = [];
+  let moveAnim = null;
+  let effectSeq = 1;
+
+  const state = {
+    screen: 'title',
+    stage: 1,
+    stageTitle: 'Stage 1 · The Skirmish',
+    turn: 1,
+    phase: 'player',
+    busy: false,
+    board: [],
+    units: [],
+    selectedId: null,
+    hoveredTile: null,
+    hoveredBtn: null,
+    reachable: new Map(),
+    attackable: new Set(),
+    pendingMove: null,
+    fx: { vanguardMove: 0, counterBonus: 0, arcanistAtk: 0, auraAtk: 1, pierceBonus: 2, forestStride: false, bonusMaxHp: 0 },
+    upgrades: [],
+    playstyle: { arcanist: 0, striker: 0, vanguard: 0, forest: 0, fortress: 0, total: 0 },
+    doctrine: 'balanced',
+    adaptNote: 'AI Doctrine: Balanced Combined Arms',
+    callout: '',
+    choices: [],
+    floats: [],
+    bolts: [],
+    particles: [],
+    waves: [],
+    slashes: [],
+    banner: null,
+    shake: 0,
+    stats: { cleared: 0, defeated: 0, turns: 0 }
+  };
+
+  function coordKey(c, r) { return `${c},${r}`; }
+  function inBounds(c, r) { return c >= 0 && c < BOARD_SIZE && r >= 0 && r < BOARD_SIZE; }
+  function dist(a, b) { return Math.abs(a.col - b.col) + Math.abs(a.row - b.row); }
+  function unitAt(c, r) { return state.units.find(u => u.hp > 0 && u.col === c && u.row === r); }
+  function calcCombatXp(dmg, killed) { return Math.max(0, dmg) * 4 + (killed ? 30 : 0); }
+
+  function schedule(fn, ms) {
+    const id = setTimeout(() => { timers = timers.filter(t => t !== id); fn(); }, ms);
+    timers.push(id);
+  }
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  function parseBoard(rows) {
+    const map = { '.': 'plains', F: 'forest', R: 'fortress', W: 'chasm' };
+    return Array.from({ length: BOARD_SIZE }, (_, row) =>
+      Array.from({ length: BOARD_SIZE }, (_, col) => ({ col, row, terrain: map[rows[row][col]] || 'plains' }))
+    );
+  }
+
+  function createUnit(id, name, cls, faction, col, row, hpBonus = 0, atkBonus = 0) {
+    const cfg = ARCHETYPES[cls];
+    const isP = faction === 'player';
+    const maxHp = cfg.hp + (isP ? state.fx.bonusMaxHp : 0) + hpBonus;
+    return {
+      id, name, cls, faction, col, row, rx: col, ry: row,
+      hp: maxHp, maxHp,
+      atk: cfg.atk + (isP && cls === 'arcanist' ? state.fx.arcanistAtk : 0) + atkBonus,
+      def: cfg.def,
+      mov: cfg.mov + (isP && cls === 'vanguard' ? state.fx.vanguardMove : 0),
+      minR: cfg.minR, maxR: cfg.maxR,
+      fly: cfg.fly, ignoreTerrain: cfg.ignoreTerrain, zoc: cfg.zoc,
+      level: 1, xp: 0, xpNext: INITIAL_XP,
+      moved: false, acted: false, tilesMoved: 0, flash: 0, lx: 0, ly: 0
+    };
+  }
+
+  function grantUnitXp(unit, dmg, killed) {
+    const gained = calcCombatXp(dmg, killed);
+    if (gained <= 0 || unit.hp <= 0) return;
+    unit.xp += gained;
+    addFloat(unit.col, unit.row - 0.15, `+${gained} XP`, PALETTE.xp);
+    let ups = 0;
+    while (unit.xp >= unit.xpNext) {
+      unit.xp -= unit.xpNext;
+      unit.level += 1;
+      unit.xpNext = Math.round(unit.xpNext * 1.35);
+      const isOffense = unit.cls === 'striker' || unit.cls === 'arcanist';
+      const isEven = unit.level % 2 === 0;
+      const grantsAtk = isOffense ? isEven : !isEven;
+      const label = grantsAtk ? `LV ${unit.level} · +1 ATK` : `LV ${unit.level} · +2 HP`;
+      if (grantsAtk) unit.atk += 1;
+      else { unit.maxHp += 2; unit.hp = Math.min(unit.maxHp, unit.hp + 2); }
+      const delay = 170 + ups * 240;
+      ups += 1;
+      schedule(() => {
+        audio.play('levelUp');
+        addFloat(unit.col, unit.row - 0.45, label, PALETTE.amber);
+        state.waves.push({ x: unit.col, y: unit.row, maxR: 1.25, color: PALETTE.amber, age: 0, dur: 0.55 });
+        addParticles(unit.col + 0.5, unit.row + 0.5, PALETTE.amber, 16);
+      }, delay);
+    }
+  }
+
+  function triangleOutcome(aCls, dCls) {
+    const adv = (aCls === 'vanguard' && dCls === 'striker') || (aCls === 'striker' && dCls === 'arcanist') || (aCls === 'arcanist' && dCls === 'vanguard');
+    if (adv) return 'advantage';
+    const dis = (aCls === 'striker' && dCls === 'vanguard') || (aCls === 'arcanist' && dCls === 'striker') || (aCls === 'vanguard' && dCls === 'arcanist');
+    return dis ? 'disadvantage' : 'neutral';
+  }
+
+  function hasAura(unit, pos) {
+    if (unit.cls === 'sovereign') return false;
+    return state.units.some(u => u.hp > 0 && u.faction === unit.faction && u.cls === 'sovereign' && u.id !== unit.id && dist(pos, u) === 1);
+  }
+
+  function calcStrike(atk, atkPos, def, defPos, isCounter, tilesMoved) {
+    const tMeta = TERRAIN[state.board[defPos.row][defPos.col].terrain];
+    const tri = triangleOutcome(atk.cls, def.cls);
+    const triMod = tri === 'advantage' ? 2 : tri === 'disadvantage' ? -2 : 0;
+    const aura = hasAura(atk, atkPos);
+    const auraMod = aura ? (atk.faction === 'player' ? state.fx.auraAtk : 1) : 0;
+    const pierce = !isCounter && atk.cls === 'striker' && tilesMoved >= 3 ? (atk.faction === 'player' ? state.fx.pierceBonus : 2) : 0;
+    const counterMod = isCounter && atk.faction === 'player' ? state.fx.counterBonus : 0;
+    const tDef = atk.ignoreTerrain ? 0 : tMeta.def;
+    const tEva = atk.ignoreTerrain ? 0 : tMeta.eva;
+    const dmg = Math.max(1, atk.atk + triMod + auraMod + pierce + counterMod - (def.def + tDef));
+    const hit = Math.max(55, Math.min(100, 100 - tEva));
+    return { dmg, hit, tri, aura, pierce };
+  }
+
+  function buildForecast(atk, atkPos, def, tilesMoved) {
+    const d = dist(atkPos, def);
+    const s = calcStrike(atk, atkPos, def, def, false, tilesMoved);
+    const defDies = def.hp - s.dmg <= 0;
+    const canCounter = !defDies && d >= def.minR && d <= def.maxR;
+    const c = canCounter ? calcStrike(def, def, atk, atkPos, true, 0) : null;
+    return {
+      dmg: s.dmg, hit: s.hit, tri: s.tri, aura: s.aura, pierce: s.pierce,
+      canCounter, cDmg: c ? c.dmg : 0, cHit: c ? c.hit : 0,
+      defDies, atkDies: canCounter && atk.hp - c.dmg <= 0,
+      ignoresTerrain: atk.ignoreTerrain
+    };
+  }
+
+  function inEnemyZoc(unit, c, r) {
+    if (unit.fly) return false;
+    return state.units.some(u => u.hp > 0 && u.faction !== unit.faction && u.zoc && dist({ col: c, row: r }, u) === 1);
+  }
+
+  function computeReachable(unit) {
+    const best = new Map();
+    const paths = new Map();
+    const k0 = coordKey(unit.col, unit.row);
+    const p0 = [{ col: unit.col, row: unit.row }];
+    best.set(k0, 0); paths.set(k0, p0);
+    const q = [{ col: unit.col, row: unit.row, spent: 0, path: p0 }];
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+
+    while (q.length) {
+      q.sort((a, b) => a.spent - b.spent);
+      const cur = q.shift();
+      if (cur.spent > (best.get(coordKey(cur.col, cur.row)) ?? Infinity)) continue;
+      if ((cur.col !== unit.col || cur.row !== unit.row) && inEnemyZoc(unit, cur.col, cur.row)) continue;
+
+      for (const [dc, dr] of dirs) {
+        const nc = cur.col + dc; const nr = cur.row + dr;
+        if (!inBounds(nc, nr)) continue;
+        const occ = unitAt(nc, nr);
+        if (occ && occ.faction !== unit.faction) continue;
+        const t = state.board[nr][nc].terrain;
+        const meta = TERRAIN[t];
+        let cost = unit.fly ? 1 : (meta.passable ? meta.moveCost : Infinity);
+        if (!unit.fly && unit.faction === 'player' && state.fx.forestStride && t === 'forest') cost = 1;
+        const nextSpent = cur.spent + cost;
+        if (nextSpent > unit.mov) continue;
+        const nk = coordKey(nc, nr);
+        if (nextSpent < (best.get(nk) ?? Infinity)) {
+          const np = [...cur.path, { col: nc, row: nr }];
+          best.set(nk, nextSpent); paths.set(nk, np);
+          q.push({ col: nc, row: nr, spent: nextSpent, path: np });
+        }
+      }
+    }
+
+    const res = new Map();
+    paths.forEach((p, k) => {
+      const end = p[p.length - 1];
+      const occ = unitAt(end.col, end.row);
+      if (!occ || occ.id === unit.id) res.set(k, p);
+    });
+    return res;
+  }
+
+  function attackableFrom(unit, pos) {
+    return state.units.filter(t => t.hp > 0 && t.faction !== unit.faction && dist(pos, t) >= unit.minR && dist(pos, t) <= unit.maxR);
+  }
+
+  function detectDoctrine() {
+    const p = state.playstyle;
+    if (p.total < 3) return 'balanced';
+    const items = [
+      ['arcane', p.arcanist * 1.5],
+      ['guerrilla', p.forest * 1.4 + p.fortress * 1.1],
+      ['blitz', p.striker * 1.4],
+      ['phalanx', p.vanguard * 1.25]
+    ].sort((a, b) => b[1] - a[1]);
+    return items[0][1] >= 3 ? items[0][0] : 'balanced';
+  }
+
+  function adaptLabel(doc) {
+    if (doc === 'arcane') return 'AI Counter-Doctrine: Flanking Strikers vs Arcanists';
+    if (doc === 'guerrilla') return 'AI Counter-Doctrine: Arcanists to pierce terrain cover';
+    if (doc === 'blitz') return 'AI Counter-Doctrine: Vanguards to lock Striker lanes';
+    if (doc === 'phalanx') return 'AI Counter-Doctrine: Arcanists to fracture Vanguard wall';
+    return 'AI Doctrine: Balanced Combined Arms';
+  }
+
+  function stageBlueprint(num) {
+    if (num === 1) {
+      return {
+        title: 'Stage 1 · The Skirmish', sub: 'Plains & Forests · Defeat the Enemy Sovereign',
+        board: parseBoard(['........', '..F..F..', '........', '.F.FF.F.', '..F..F..', '........', '.F....F.', '........']),
+        spawns: [{ col: 3, row: 7 }, { col: 2, row: 6 }, { col: 5, row: 6 }],
+        enemies: [
+          { cls: 'sovereign', col: 4, row: 0, name: 'Crimson Sovereign' },
+          { cls: 'vanguard', col: 5, row: 1, name: 'Bastion Guard' },
+          { cls: 'striker', col: 2, row: 1, name: 'Talon Lancer' }
+        ],
+        callout: 'Select a cyan unit to preview moves. Hover coral targets for Combat Forecast · Vanguard beats Striker.'
+      };
+    }
+    if (num === 2) {
+      return {
+        title: 'Stage 2 · Chokepoints', sub: 'Fortresses, Chasms & Arcanists',
+        board: parseBoard(['........', '..F..F..', '.W.RR.W.', 'WW....WW', '..F..F..', '.R....R.', '........', '........']),
+        spawns: [{ col: 3, row: 7 }, { col: 2, row: 6 }, { col: 5, row: 6 }, { col: 4, row: 7 }, { col: 1, row: 7 }],
+        enemies: [
+          { cls: 'sovereign', col: 4, row: 0, name: 'Iron Monarch' },
+          { cls: 'vanguard', col: 3, row: 1, name: 'Red Shield' },
+          { cls: 'striker', col: 6, row: 1, name: 'Gale Raider' },
+          { cls: 'arcanist', col: 1, row: 0, name: 'Cinder Magus' }
+        ],
+        callout: 'Arcanists strike at range 2–3 and ignore terrain defense. Fortresses grant +2 DEF and heal 15% each turn.'
+      };
+    }
+    const doc = detectDoctrine();
+    const board = parseBoard(EXTRA_MAPS[(num - 3) % EXTRA_MAPS.length]);
+    const pools = {
+      balanced: ['vanguard', 'striker', 'arcanist', 'vanguard', 'striker'],
+      arcane: ['striker', 'striker', 'vanguard', 'striker', 'arcanist'],
+      guerrilla: ['arcanist', 'arcanist', 'vanguard', 'striker', 'arcanist'],
+      blitz: ['vanguard', 'vanguard', 'arcanist', 'vanguard', 'striker'],
+      phalanx: ['arcanist', 'arcanist', 'striker', 'vanguard', 'arcanist']
+    };
+    const count = Math.min(5, 2 + num);
+    const classes = ['sovereign', ...pools[doc].slice(0, count)];
+    const slots = [{ col: 4, row: 0 }, { col: 2, row: 1 }, { col: 5, row: 1 }, { col: 1, row: 0 }, { col: 6, row: 0 }, { col: 3, row: 1 }]
+      .filter(s => board[s.row][s.col].terrain !== 'chasm');
+    return {
+      title: `Stage ${num} · Escalation`, sub: adaptLabel(doc), board,
+      spawns: [{ col: 3, row: 7 }, { col: 2, row: 6 }, { col: 5, row: 6 }, { col: 4, row: 7 }, { col: 1, row: 7 }],
+      enemies: classes.map((cls, i) => ({
+        cls, col: (slots[i] || { col: i, row: 0 }).col, row: (slots[i] || { col: i, row: 0 }).row,
+        name: ENEMY_NAMES[cls][i % ENEMY_NAMES[cls].length]
+      })),
+      callout: `${adaptLabel(doc)}. Protect your Sovereign.`
+    };
+  }
+
+  function syncHud() {
+    const isPlaying = state.screen === 'playing';
+    const isPlayer = state.phase === 'player';
+    const pUnits = state.units.filter(u => u.faction === 'player' && u.hp > 0);
+    const ready = pUnits.filter(u => !u.acted).length;
+    const sel = state.units.find(u => u.id === state.selectedId && u.hp > 0);
+
+    btnUndo.disabled = !(isPlaying && isPlayer && !state.busy && state.pendingMove);
+    btnWait.disabled = !(isPlaying && isPlayer && !state.busy && sel && !sel.acted);
+    btnEndTurn.disabled = !(isPlaying && isPlayer && !state.busy);
+    btnRestart.style.display = state.screen === 'title' ? 'none' : 'inline-flex';
+    btnMute.textContent = audio.muted ? 'Muted' : 'Sound';
+
+    if (state.screen === 'title') {
+      hudMeta.innerHTML = '';
+      footerRight.textContent = 'Z Undo · Space Wait · E End Turn · Right-Click Cancel';
+    } else {
+      hudMeta.innerHTML = `<strong>${state.stageTitle}</strong><span>·</span><span>Turn ${state.turn}</span><span>·</span><span class="${isPlayer ? 'phase-player' : 'phase-enemy'}">${isPlayer ? 'Player Phase' : 'Enemy Phase'}</span><span>·</span><span>Ready ${ready}/${pUnits.length}</span>`;
+      const upText = state.upgrades.length ? ` · Upgrades: ${state.upgrades.join(', ')}` : '';
+      footerRight.innerHTML = `<span>${state.adaptNote}</span><span class="emerald">${upText}</span>`;
+    }
+  }
+
+  function startCampaign() {
+    clearTimers(); moveAnim = null; state.busy = false;
+    state.fx = { vanguardMove: 0, counterBonus: 0, arcanistAtk: 0, auraAtk: 1, pierceBonus: 2, forestStride: false, bonusMaxHp: 0 };
+    state.upgrades = [];
+    state.playstyle = { arcanist: 0, striker: 0, vanguard: 0, forest: 0, fortress: 0, total: 0 };
+    state.doctrine = 'balanced';
+    state.adaptNote = adaptLabel('balanced');
+    state.stats = { cleared: 0, defeated: 0, turns: 0 };
+
+    const squad = [
+      createUnit('p-sov', 'Azure Sovereign', 'sovereign', 'player', 3, 7),
+      createUnit('p-van', 'Aegis Vanguard', 'vanguard', 'player', 2, 6),
+      createUnit('p-str', 'Zephyr Striker', 'striker', 'player', 5, 6)
+    ];
+    loadStage(1, squad);
+    audio.play('select');
+  }
+
+  function loadStage(num, squad) {
+    clearTimers(); moveAnim = null; state.busy = false;
+    const bp = stageBlueprint(num);
+    const players = [...squad];
+    if (num === 2 && !players.some(u => u.cls === 'arcanist')) {
+      players.push(createUnit('p-arc', 'Astral Arcanist', 'arcanist', 'player', 4, 7));
+    }
+    const deployedP = players.map((u, i) => {
+      const sp = bp.spawns[i] || { col: i, row: 7 };
+      const heal = num > 1 ? Math.ceil(u.maxHp * 0.25) : 0;
+      return { ...u, col: sp.col, row: sp.row, rx: sp.col, ry: sp.row, hp: Math.min(u.maxHp, u.hp + heal), moved: false, acted: false, tilesMoved: 0, flash: 0, lx: 0, ly: 0 };
+    });
+    const hpScale = num >= 3 ? (num - 2) * 2 : 0;
+    const atkScale = num >= 4 ? Math.floor((num - 2) / 2) : 0;
+    const deployedE = bp.enemies.map((e, i) => createUnit(`e-${num}-${i}`, e.name, e.cls, 'enemy', e.col, e.row, hpScale, atkScale));
+
+    state.screen = 'playing'; state.stage = num; state.stageTitle = bp.title;
+    state.turn = 1; state.phase = 'player'; state.board = bp.board;
+    state.units = [...deployedP, ...deployedE];
+    state.selectedId = null; state.reachable = new Map(); state.attackable = new Set(); state.pendingMove = null;
+    state.doctrine = detectDoctrine(); state.adaptNote = adaptLabel(state.doctrine); state.callout = bp.callout;
+    state.floats = []; state.bolts = []; state.particles = []; state.waves = []; state.slashes = [];
+    state.banner = { title: bp.title.toUpperCase(), sub: bp.sub, color: PALETTE.player, age: 0, dur: 1.5 };
+    syncHud();
+  }
+
+  function addFloat(x, y, text, color) { state.floats.push({ id: effectSeq++, x, y, text, color, age: 0, dur: 0.95 }); }
+  function addParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const a = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+      const spd = 0.8 + Math.random() * 1.9;
+      state.particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, size: 3 + Math.random() * 3.5, color, age: 0, dur: 0.5 + Math.random() * 0.25 });
+    }
+  }
+
+  function selectUnit(unit) {
+    state.selectedId = unit.id;
+    state.reachable = computeReachable(unit);
+    state.attackable = new Set(attackableFrom(unit, unit).map(u => u.id));
+    audio.play('select');
+    syncHud();
+  }
+
+  function clearSelection() {
+    state.selectedId = null; state.reachable = new Map(); state.attackable = new Set(); syncHud();
+  }
+
+  function undoMove() {
+    if (state.screen !== 'playing' || state.phase !== 'player' || state.busy || !state.pendingMove) return;
+    const { id, col, row } = state.pendingMove;
+    const u = state.units.find(x => x.id === id);
+    if (!u) return;
+    u.col = col; u.row = row; u.rx = col; u.ry = row; u.moved = false; u.tilesMoved = 0;
+    state.pendingMove = null;
+    audio.play('undo');
+    selectUnit(u);
+  }
+
+  function waitSelected() {
+    const u = state.units.find(x => x.id === state.selectedId && x.hp > 0);
+    if (state.screen !== 'playing' || state.phase !== 'player' || state.busy || !u || u.acted) return;
+    audio.play('select');
+    finishPlayerUnit(u, false);
+  }
+
+  function recordPlaystyle(u, attacked) {
+    state.playstyle.total += 1;
+    if (attacked) {
+      if (u.cls === 'arcanist') state.playstyle.arcanist += 1;
+      if (u.cls === 'striker') state.playstyle.striker += 1;
+      if (u.cls === 'vanguard') state.playstyle.vanguard += 1;
+    }
+    const t = state.board[u.row][u.col].terrain;
+    if (t === 'forest') state.playstyle.forest += 1;
+    if (t === 'fortress') state.playstyle.fortress += 1;
+    state.doctrine = detectDoctrine();
+    state.adaptNote = adaptLabel(state.doctrine);
+  }
+
+  function checkOutcome() {
+    const pSov = state.units.some(u => u.faction === 'player' && u.cls === 'sovereign' && u.hp > 0);
+    if (!pSov) { clearTimers(); state.busy = false; state.screen = 'defeat'; audio.play('defeat'); syncHud(); return true; }
+    const eSov = state.units.some(u => u.faction === 'enemy' && u.cls === 'sovereign' && u.hp > 0);
+    const anyE = state.units.some(u => u.faction === 'enemy' && u.hp > 0);
+    if (!eSov || !anyE) {
+      clearTimers(); state.busy = false; state.stats.cleared += 1; audio.play('victory');
+      const pool = UPGRADES.filter(u => !(u.id === 'stride' && state.fx.forestStride));
+      state.choices = [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
+      state.screen = 'upgrade'; syncHud(); return true;
+    }
+    return false;
+  }
+
+  function finishPlayerUnit(u, attacked) {
+    u.moved = true; u.acted = true;
+    state.pendingMove = null; state.selectedId = null; state.reachable = new Map(); state.attackable = new Set();
+    if (u.hp > 0) recordPlaystyle(u, attacked);
+    if (checkOutcome()) return;
+    const anyReady = state.units.some(x => x.faction === 'player' && x.hp > 0 && !x.acted);
+    syncHud();
+    if (!anyReady) schedule(startEnemyPhase, 320);
+  }
+
+  function endTurn() {
+    if (state.screen !== 'playing' || state.phase !== 'player' || state.busy) return;
+    state.units.forEach(u => {
+      if (u.faction === 'player' && u.hp > 0 && !u.acted) { recordPlaystyle(u, false); u.acted = true; u.moved = true; }
+    });
+    state.pendingMove = null; clearSelection(); startEnemyPhase();
+  }
+
+  function fortressHeal(faction) {
+    let healed = false;
+    state.units.forEach(u => {
+      if (u.hp <= 0 || u.hp >= u.maxHp || u.faction !== faction) return;
+      const ratio = TERRAIN[state.board[u.row][u.col].terrain].heal;
+      if (ratio <= 0) return;
+      const amt = Math.max(2, Math.ceil(u.maxHp * ratio));
+      u.hp = Math.min(u.maxHp, u.hp + amt);
+      addFloat(u.col, u.row, `+${amt} HP`, PALETTE.heal);
+      healed = true;
+    });
+    if (healed) audio.play('heal');
+  }
+
+  function runStrike(atk, def, dmg, hit, tag, done) {
+    const ranged = atk.cls === 'arcanist';
+    const dx = def.col - atk.col; const dy = def.row - atk.row;
+    const n = Math.hypot(dx, dy) || 1;
+    if (ranged) {
+      audio.play('arcane');
+      state.bolts.push({ fx: atk.col, fy: atk.row, tx: def.col, ty: def.row, color: atk.faction === 'player' ? PALETTE.player : PALETTE.enemy, age: 0, dur: 0.22 });
+    } else {
+      atk.lx = (dx / n) * 0.34; atk.ly = (dy / n) * 0.34;
+    }
+    schedule(() => {
+      atk.lx = 0; atk.ly = 0;
+      const didHit = hit >= 100 || Math.random() * 100 <= hit;
+      if (!didHit) {
+        audio.play('miss'); addFloat(def.col, def.row, 'EVADED', PALETTE.sub); schedule(done, 200); return;
+      }
+      def.hp = Math.max(0, def.hp - dmg);
+      def.flash = 0.22;
+      if (dmg >= 8 || def.hp === 0) { state.shake = def.hp === 0 ? 9 : 5.5; audio.play('heavy'); }
+      else audio.play('hit');
+      addFloat(def.col, def.row, `-${dmg}`, atk.faction === 'player' ? PALETTE.playerHi : PALETTE.enemy);
+      if (tag) addFloat(def.col, def.row - 0.35, tag, PALETTE.amber);
+      if (!ranged) state.slashes.push({ x: def.col, y: def.row, angle: Math.atan2(dy, dx), color: atk.faction === 'player' ? PALETTE.playerHi : PALETTE.enemyHi, age: 0, dur: 0.24 });
+      state.waves.push({ x: def.col, y: def.row, maxR: def.hp === 0 ? 1.15 : 0.72, color: atk.faction === 'player' ? PALETTE.player : PALETTE.enemy, age: 0, dur: def.hp === 0 ? 0.45 : 0.3 });
+      addParticles(def.col + 0.5, def.row + 0.5, def.faction === 'player' ? PALETTE.player : PALETTE.enemy, def.hp === 0 ? 20 : 10);
+      const killed = def.hp === 0;
+      if (killed && def.faction === 'enemy') state.stats.defeated += 1;
+      if (atk.faction === 'player') grantUnitXp(atk, dmg, killed);
+      schedule(done, 260);
+    }, ranged ? 210 : 120);
+  }
+
+  function runCombat(atk, def, done) {
+    state.busy = true;
+    const fc = buildForecast(atk, atk, def, atk.tilesMoved);
+    const tag = fc.pierce > 0 ? 'PIERCE!' : fc.tri === 'advantage' ? 'ADV!' : null;
+    runStrike(atk, def, fc.dmg, fc.hit, tag, () => {
+      if (def.hp > 0 && fc.canCounter) {
+        schedule(() => {
+          runStrike(def, atk, fc.cDmg, fc.cHit, null, () => { state.busy = false; done(); });
+        }, 250);
+      } else { state.busy = false; done(); }
+    });
+  }
+
+  function chooseEnemyMove(enemy) {
+    const players = state.units.filter(u => u.faction === 'player' && u.hp > 0);
+    const reach = computeReachable(enemy);
+    const hasArcanist = players.some(p => p.cls === 'arcanist');
+    let best = { dest: { col: enemy.col, row: enemy.row }, path: [{ col: enemy.col, row: enemy.row }], targetId: null, score: -9999 };
+
+    reach.forEach(path => {
+      const dest = path[path.length - 1];
+      const moved = Math.max(0, path.length - 1);
+      const t = state.board[dest.row][dest.col].terrain;
+      let tScore = 0;
+      if (t === 'fortress') tScore += enemy.hp <= enemy.maxHp * 0.6 ? 32 : 18;
+      if (t === 'forest') tScore += hasArcanist ? 6 : 13;
+      if (hasAura(enemy, dest)) tScore += 8;
+      const threats = players.filter(p => dist(dest, p) <= p.mov + p.maxR).length;
+      if (enemy.cls === 'sovereign') tScore -= threats * 14;
+      else if (enemy.cls === 'arcanist') tScore -= threats * 6;
+
+      const nearest = Math.min(...players.map(p => dist(dest, p)));
+      const ideal = enemy.cls === 'arcanist' ? 3 : 1;
+      const waitScore = tScore + (enemy.cls === 'sovereign' ? -Math.abs(nearest - 3) * 2 : -Math.abs(nearest - ideal) * 4.5);
+      if (waitScore > best.score) best = { dest, path, targetId: null, score: waitScore };
+
+      attackableFrom(enemy, dest).forEach(target => {
+        const fc = buildForecast(enemy, dest, target, moved);
+        let s = tScore;
+        if (fc.defDies) s += target.cls === 'sovereign' ? 260 : 125;
+        if (fc.atkDies) s -= enemy.cls === 'sovereign' ? 240 : 75;
+        if (fc.tri === 'advantage') s += 26;
+        else if (fc.tri === 'disadvantage') s -= 14;
+        if (!fc.canCounter) s += 18;
+        s += fc.dmg * (fc.hit / 100) * 5.2 - (fc.canCounter ? fc.cDmg * (fc.cHit / 100) * 4.1 : 0);
+        if (target.cls === 'sovereign') s += 18;
+        if (state.doctrine === 'arcane' && target.cls === 'arcanist') s += 16;
+        if (state.doctrine === 'blitz' && target.cls === 'striker') s += 14;
+        if (state.doctrine === 'phalanx' && target.cls === 'vanguard') s += 12;
+        if (s > best.score) best = { dest, path, targetId: target.id, score: s };
+      });
+    });
+    return best;
+  }
+
+  function startEnemyPhase() {
+    if (state.screen !== 'playing') return;
+    state.phase = 'enemy'; state.busy = true;
+    state.units.forEach(u => { if (u.faction === 'enemy' && u.hp > 0) { u.moved = false; u.acted = false; u.tilesMoved = 0; } });
+    fortressHeal('enemy');
+    state.banner = { title: 'ENEMY PHASE', sub: `Turn ${state.turn} · ${state.adaptNote}`, color: PALETTE.enemy, age: 0, dur: 1.05 };
+    syncHud();
+    const ids = state.units.filter(u => u.faction === 'enemy' && u.hp > 0).map(u => u.id);
+    schedule(() => stepEnemy(ids, 0), 750);
+  }
+
+  function stepEnemy(ids, idx) {
+    if (state.screen !== 'playing') return;
+    if (idx >= ids.length) {
+      state.phase = 'player'; state.turn += 1; state.stats.turns += 1; state.busy = false;
+      state.units.forEach(u => { if (u.faction === 'player' && u.hp > 0) { u.moved = false; u.acted = false; u.tilesMoved = 0; } });
+      fortressHeal('player');
+      state.banner = { title: 'PLAYER PHASE', sub: `Turn ${state.turn} · ${state.stageTitle}`, color: PALETTE.player, age: 0, dur: 1.0 };
+      syncHud(); return;
+    }
+    const enemy = state.units.find(u => u.id === ids[idx] && u.hp > 0);
+    if (!enemy) { stepEnemy(ids, idx + 1); return; }
+    const dec = chooseEnemyMove(enemy);
+    const afterMove = () => {
+      enemy.col = dec.dest.col; enemy.row = dec.dest.row; enemy.rx = dec.dest.col; enemy.ry = dec.dest.row;
+      enemy.moved = true; enemy.tilesMoved = Math.max(0, dec.path.length - 1);
+      const target = dec.targetId ? state.units.find(u => u.id === dec.targetId && u.hp > 0) : null;
+      if (target) {
+        schedule(() => {
+          runCombat(enemy, target, () => {
+            enemy.acted = true;
+            if (checkOutcome()) return;
+            schedule(() => stepEnemy(ids, idx + 1), 320);
+          });
+        }, 200);
+      } else { enemy.acted = true; schedule(() => stepEnemy(ids, idx + 1), 220); }
+    };
+    if (dec.path.length > 1) { audio.play('move'); moveAnim = { id: enemy.id, path: dec.path, seg: 0, prog: 0, done: afterMove }; }
+    else afterMove();
+  }
+
+  function pickUpgrade(id) {
+    const ch = state.choices.find(c => c.id === id);
+    if (!ch) return;
+    const survivors = state.units.filter(u => u.faction === 'player' && u.hp > 0);
+    ch.apply(survivors, state.fx);
+    state.upgrades.push(ch.title);
+    audio.play('heal');
+    loadStage(state.stage + 1, survivors);
+  }
+
+  function handleBoardClick(coord) {
+    if (state.screen !== 'playing' || state.phase !== 'player' || state.busy) return;
+    const clicked = unitAt(coord.col, coord.row);
+    const sel = state.units.find(u => u.id === state.selectedId && u.hp > 0);
+
+    if (sel && clicked && state.attackable.has(clicked.id)) {
+      runCombat(sel, clicked, () => finishPlayerUnit(sel, true));
+      return;
+    }
+    if (sel && sel.moved && clicked && clicked.id === sel.id) { waitSelected(); return; }
+    if (sel && !sel.moved) {
+      const path = state.reachable.get(coordKey(coord.col, coord.row));
+      if (path && (coord.col !== sel.col || coord.row !== sel.row)) {
+        state.busy = true;
+        const orig = { id: sel.id, col: sel.col, row: sel.row };
+        audio.play('move');
+        moveAnim = {
+          id: sel.id, path, seg: 0, prog: 0,
+          done: () => {
+            const end = path[path.length - 1];
+            sel.col = end.col; sel.row = end.row; sel.rx = end.col; sel.ry = end.row;
+            sel.moved = true; sel.tilesMoved = Math.max(0, path.length - 1);
+            state.pendingMove = orig; state.reachable = new Map();
+            state.attackable = new Set(attackableFrom(sel, end).map(t => t.id));
+            state.busy = false; syncHud();
+          }
+        };
+        syncHud(); return;
+      }
+    }
+    if (clicked && clicked.faction === 'player' && !clicked.acted && !state.pendingMove) { selectUnit(clicked); return; }
+    if (!state.pendingMove) clearSelection();
+  }
+
+  function rrect(x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr); ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h); ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr); ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y); ctx.closePath();
+  }
+
+  function traceOct(cx, cy, r) {
+    const cut = r * 0.42;
+    ctx.beginPath();
+    ctx.moveTo(cx - r + cut, cy - r); ctx.lineTo(cx + r - cut, cy - r);
+    ctx.lineTo(cx + r, cy - r + cut); ctx.lineTo(cx + r, cy + r - cut);
+    ctx.lineTo(cx + r - cut, cy + r); ctx.lineTo(cx - r + cut, cy + r);
+    ctx.lineTo(cx - r, cy + r - cut); ctx.lineTo(cx - r, cy - r + cut);
+    ctx.closePath();
+  }
+
+  function drawTree(cx, cy, r, lit, dark) {
+    ctx.fillStyle = 'rgba(2,6,23,0.45)';
+    ctx.beginPath(); ctx.ellipse(cx + r * 0.16, cy + r * 0.72, r * 0.78, r * 0.28, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r * 0.68); ctx.lineTo(cx - r * 0.82, cy + r * 0.68); ctx.closePath(); ctx.fillStyle = lit; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.82, cy + r * 0.68); ctx.lineTo(cx, cy + r * 0.68); ctx.closePath(); ctx.fillStyle = dark; ctx.fill();
+  }
+
+  function drawGlyph(cls, cx, cy, r, fill, stroke, nowSec) {
+    ctx.save(); ctx.translate(cx, cy);
+    if (cls === 'vanguard') {
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.98); ctx.lineTo(r * 0.86, -r * 0.56); ctx.lineTo(r * 0.74, r * 0.26);
+      ctx.lineTo(0, r * 0.98); ctx.lineTo(-r * 0.74, r * 0.26); ctx.lineTo(-r * 0.86, -r * 0.56);
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, -r * 0.96); ctx.lineTo(0, r * 0.96); ctx.lineTo(-r * 0.72, r * 0.25); ctx.lineTo(-r * 0.84, -r * 0.55); ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.98); ctx.lineTo(r * 0.86, -r * 0.56); ctx.lineTo(r * 0.74, r * 0.26);
+      ctx.lineTo(0, r * 0.98); ctx.lineTo(-r * 0.74, r * 0.26); ctx.lineTo(-r * 0.86, -r * 0.56);
+      ctx.closePath(); ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1.5, r * 0.13); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r * 0.42, -r * 0.16); ctx.lineTo(0, -r * 0.46); ctx.lineTo(r * 0.42, -r * 0.16); ctx.moveTo(0, -r * 0.42); ctx.lineTo(0, r * 0.54); ctx.stroke();
+    } else if (cls === 'striker') {
+      ctx.beginPath(); ctx.moveTo(-r * 0.86, -r * 0.12); ctx.lineTo(-r * 0.26, -r * 0.48); ctx.lineTo(-r * 0.42, -r * 0.04); ctx.closePath(); ctx.fillStyle = 'rgba(255,255,255,0.34)'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.94, -r * 0.94); ctx.lineTo(r * 0.18, r * 0.36); ctx.lineTo(r * 0.46, r * 0.52);
+      ctx.lineTo(r * 0.24, r * 0.74); ctx.lineTo(-r * 0.06, r * 0.44); ctx.lineTo(-r * 0.68, r * 0.88);
+      ctx.lineTo(-r * 0.88, r * 0.68); ctx.lineTo(-r * 0.44, r * 0.06); ctx.lineTo(-r * 0.74, -r * 0.24);
+      ctx.lineTo(-r * 0.52, -r * 0.46); ctx.lineTo(-r * 0.36, -r * 0.18);
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1.4, r * 0.12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(r * 0.76, -r * 0.76); ctx.lineTo(-r * 0.26, r * 0.26); ctx.strokeStyle = '#fff'; ctx.stroke();
+    } else if (cls === 'arcanist') {
+      ctx.save(); ctx.rotate(nowSec * 0.65); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(-r * 0.56, -r * 0.56, r * 1.12, r * 1.12); ctx.restore();
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4 - Math.PI / 2;
+        const d = i % 2 === 0 ? r * 1.02 : r * 0.32;
+        if (i === 0) ctx.moveTo(Math.cos(a) * d, Math.sin(a) * d);
+        else ctx.lineTo(Math.cos(a) * d, Math.sin(a) * d);
+      }
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1.4, r * 0.11); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.24, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.8, r * 0.68); ctx.lineTo(-r * 0.96, -r * 0.36); ctx.lineTo(-r * 0.38, r * 0.06);
+      ctx.lineTo(0, -r * 0.92); ctx.lineTo(r * 0.38, r * 0.06); ctx.lineTo(r * 0.96, -r * 0.36); ctx.lineTo(r * 0.8, r * 0.68);
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1.6, r * 0.12); ctx.stroke();
+      ctx.fillStyle = PALETTE.amber; ctx.fillRect(-r * 0.68, r * 0.42, r * 1.36, r * 0.18);
+      ctx.beginPath(); ctx.arc(0, -r * 0.02, r * 0.18, 0, Math.PI * 2); ctx.fillStyle = '#fef08a'; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBackdrop(nowSec) {
+    const rad = ctx.createRadialGradient(canvasW / 2, canvasH / 2, 24, canvasW / 2, canvasH / 2, Math.max(canvasW, canvasH) * 0.72);
+    rad.addColorStop(0, '#162542'); rad.addColorStop(0.55, '#0f172a'); rad.addColorStop(1, '#080d1a');
+    ctx.fillStyle = rad; ctx.fillRect(0, 0, canvasW, canvasH);
+    for (let i = 0; i < 16; i++) {
+      const px = ((((i * 197 + 43) % 100) / 100) * canvasW + Math.sin(nowSec * 0.35 + i) * 18 + canvasW) % canvasW;
+      const py = ((((i * 131 + 29) % 100) / 100) * canvasH - nowSec * (6 + (i % 5) * 2) + canvasH * 10) % canvasH;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(56,189,248,0.16)' : 'rgba(148,163,184,0.12)';
+      ctx.beginPath(); ctx.arc(px, py, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function metrics() {
+    const availW = Math.max(240, canvasW - 56);
+    const availH = Math.max(240, canvasH - 92);
+    const tile = Math.floor(Math.min(availW, availH) / BOARD_SIZE);
+    const size = tile * BOARD_SIZE;
+    return { bx: Math.floor((canvasW - size) / 2), by: Math.floor(48 + (availH - size) / 2), size, tile };
+  }
+
+  function render(nowSec) {
+    ctx.clearRect(0, 0, canvasW, canvasH);
+    const m = metrics();
+    hitBoxes = [];
+
+    if (state.screen === 'title') {
+      drawBackdrop(nowSec);
+      const gs = Math.min(canvasW, canvasH) * 0.86;
+      const cell = gs / BOARD_SIZE;
+      const sx = (canvasW - gs) / 2; const sy = (canvasH - gs) / 2;
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const w = Math.sin(nowSec * 1.1 + c * 0.55 + r * 0.45) * 0.5 + 0.5;
+          ctx.fillStyle = `rgba(30,41,59,${(((c + r) % 2 ? 0.22 : 0.38) + w * 0.16).toFixed(3)})`;
+          ctx.fillRect(sx + c * cell + 1.5, sy + r * cell + 1.5, cell - 3, cell - 3);
+        }
+      }
+      ctx.fillStyle = 'rgba(12, 19, 36, 0.82)'; ctx.fillRect(0, 0, canvasW, canvasH);
+      const cx = canvasW / 2; const cy = canvasH / 2;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '700 48px system-ui, sans-serif'; ctx.fillStyle = PALETTE.text; ctx.fillText('Tactics: 64', cx, cy - 84);
+      ctx.font = '400 15px system-ui, sans-serif'; ctx.fillStyle = PALETTE.sub;
+      ctx.fillText('Sixty-four squares, four distinct classes, and zero room for a wasted turn.', cx, cy - 34, canvasW - 40);
+      const bw = 180; const bh = 46; const bx = cx - bw / 2; const by = cy + 44;
+      rrect(bx, by, bw, bh, 8);
+      ctx.fillStyle = state.hoveredBtn === 'deploy' ? '#7dd3fc' : PALETTE.player; ctx.fill();
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillStyle = '#082f49'; ctx.fillText('Deploy', cx, by + bh / 2);
+      hitBoxes.push({ id: 'deploy', x: bx, y: by, w: bw, h: bh });
+      return;
+    }
+
+    drawBackdrop(nowSec);
+    const sx = state.shake > 0.2 ? (Math.random() - 0.5) * 2 * state.shake : 0;
+    const sy = state.shake > 0.2 ? (Math.random() - 0.5) * 2 * state.shake : 0;
+    ctx.save(); ctx.translate(sx, sy);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(2,6,23,0.75)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 12;
+    rrect(m.bx - 9, m.by - 9, m.size + 18, m.size + 18, 11);
+    ctx.fillStyle = '#0f1a2e'; ctx.fill();
+    ctx.restore();
+    rrect(m.bx - 9, m.by - 9, m.size + 18, m.size + 18, 11);
+    ctx.strokeStyle = 'rgba(148,163,184,0.28)'; ctx.lineWidth = 1.2; ctx.stroke();
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const t = state.board[r][c].terrain;
+        const tx = m.bx + c * m.tile; const ty = m.by + r * m.tile;
+        if (t === 'plains') {
+          const g = ctx.createLinearGradient(tx, ty, tx + m.tile, ty + m.tile);
+          g.addColorStop(0, (c + r) % 2 ? '#16233b' : '#1b2a45');
+          g.addColorStop(1, (c + r) % 2 ? '#101a2e' : '#142036');
+          ctx.fillStyle = g; ctx.fillRect(tx, ty, m.tile, m.tile);
+          ctx.fillStyle = 'rgba(148,163,184,0.14)'; ctx.fillRect(tx + m.tile * 0.5 - 1, ty + m.tile * 0.5 - 1, 2, 2);
+        } else if (t === 'forest') {
+          const g = ctx.createLinearGradient(tx, ty, tx, ty + m.tile);
+          g.addColorStop(0, '#123331'); g.addColorStop(1, '#0b2121');
+          ctx.fillStyle = g; ctx.fillRect(tx, ty, m.tile, m.tile);
+          drawTree(tx + m.tile * 0.3, ty + m.tile * 0.56, m.tile * 0.19, '#246e63', '#154842');
+          drawTree(tx + m.tile * 0.7, ty + m.tile * 0.58, m.tile * 0.18, '#21665c', '#13423c');
+          drawTree(tx + m.tile * 0.5, ty + m.tile * 0.42, m.tile * 0.23, '#349482', '#1c5e54');
+        } else if (t === 'fortress') {
+          ctx.fillStyle = '#202d42'; ctx.fillRect(tx, ty, m.tile, m.tile);
+          const ins = m.tile * 0.12; const sl = m.tile - ins * 2;
+          ctx.fillStyle = '#0f172a'; ctx.fillRect(tx + ins, ty + ins + 3, sl, sl);
+          ctx.fillStyle = '#2e3c54'; ctx.fillRect(tx + ins, ty + ins, sl, sl - 1);
+          ctx.strokeStyle = 'rgba(203,213,225,0.32)'; ctx.strokeRect(tx + ins, ty + ins, sl, sl - 1);
+          const p = 0.55 + Math.sin(nowSec * 2.8 + c + r) * 0.25;
+          ctx.fillStyle = `rgba(251,191,36,${p.toFixed(2)})`;
+          ctx.fillRect(tx + m.tile * 0.37, ty + m.tile * 0.46, m.tile * 0.26, 3);
+          ctx.fillRect(tx + m.tile * 0.48, ty + m.tile * 0.35, 3, m.tile * 0.26);
+        } else {
+          ctx.fillStyle = '#050c1a'; ctx.fillRect(tx, ty, m.tile, m.tile);
+          const sh = (nowSec * 10 + c * 7 + r * 5) % (m.tile * 0.5);
+          ctx.strokeStyle = 'rgba(56,189,248,0.16)'; ctx.lineWidth = 1.2;
+          for (let b = 0; b < 3; b++) {
+            const by = ty + b * m.tile * 0.34 + sh * 0.4;
+            ctx.beginPath(); ctx.moveTo(tx + 2, by); ctx.quadraticCurveTo(tx + m.tile * 0.5, by - 4, tx + m.tile - 2, by); ctx.stroke();
+          }
+        }
+        ctx.strokeStyle = PALETTE.border; ctx.lineWidth = 1; ctx.strokeRect(tx + 0.5, ty + 0.5, m.tile - 1, m.tile - 1);
+      }
+    }
+
+    const sel = state.units.find(u => u.id === state.selectedId && u.hp > 0);
+    if (sel && state.phase === 'player' && state.screen === 'playing') {
+      if (!sel.moved) {
+        state.reachable.forEach(p => {
+          const d = p[p.length - 1];
+          if (d.col === sel.col && d.row === sel.row) return;
+          const shimmer = 0.21 + Math.sin(nowSec * 3.4 - (d.col + d.row) * 0.45) * 0.06;
+          ctx.fillStyle = `rgba(56,189,248,${shimmer.toFixed(3)})`;
+          ctx.fillRect(m.bx + d.col * m.tile + 1, m.by + d.row * m.tile + 1, m.tile - 2, m.tile - 2);
+        });
+      }
+      state.attackable.forEach(eid => {
+        const e = state.units.find(u => u.id === eid && u.hp > 0);
+        if (!e) return;
+        ctx.fillStyle = PALETTE.atkFill;
+        ctx.fillRect(m.bx + e.col * m.tile + 1, m.by + e.row * m.tile + 1, m.tile - 2, m.tile - 2);
+        ctx.strokeStyle = PALETTE.enemy; ctx.lineWidth = 2.2;
+        ctx.strokeRect(m.bx + e.col * m.tile + 3, m.by + e.row * m.tile + 3, m.tile - 6, m.tile - 6);
+      });
+    }
+
+    state.units.forEach(u => {
+      if (u.hp <= 0) return;
+      const tx = m.bx + u.rx * m.tile; const ty = m.by + u.ry * m.tile;
+      const bob = u.acted ? 0 : u.fly ? Math.sin(nowSec * 3.4 + u.col + u.row) * m.tile * 0.04 - m.tile * 0.025 : 0;
+      const cx = tx + m.tile / 2 + u.lx * m.tile;
+      const cy = ty + m.tile / 2 + u.ly * m.tile - m.tile * 0.06 + bob;
+      const isP = u.faction === 'player';
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(2,6,23,0.55)';
+      ctx.beginPath(); ctx.ellipse(tx + m.tile / 2 + u.lx * m.tile, ty + m.tile * 0.76 + u.ly * m.tile, m.tile * (u.fly ? 0.25 : 0.33), m.tile * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = u.acted ? 0.56 : 1;
+      if (u.id === state.selectedId) {
+        traceOct(cx, cy, m.tile * 0.4); ctx.strokeStyle = PALETTE.playerHi; ctx.lineWidth = 2.2; ctx.stroke();
+      }
+      const tr = m.tile * 0.33;
+      traceOct(cx, cy, tr);
+      const dg = ctx.createLinearGradient(cx - tr, cy - tr, cx + tr, cy + tr);
+      if (u.flash > 0) { dg.addColorStop(0, '#fff'); dg.addColorStop(1, '#e2e8f0'); }
+      else if (u.acted) { dg.addColorStop(0, '#334155'); dg.addColorStop(1, '#0f172a'); }
+      else if (isP) { dg.addColorStop(0, '#0ea5e9'); dg.addColorStop(1, '#082f49'); }
+      else { dg.addColorStop(0, '#f43f5e'); dg.addColorStop(1, '#4c0519'); }
+      ctx.fillStyle = dg; ctx.fill();
+      ctx.strokeStyle = u.acted ? '#64748b' : isP ? '#7dd3fc' : '#fda4af'; ctx.lineWidth = 1.5; ctx.stroke();
+
+      drawGlyph(u.cls, cx, cy, m.tile * 0.21, u.flash > 0 ? '#fff' : u.acted ? '#64748b' : isP ? PALETTE.player : PALETTE.enemy, u.acted ? '#cbd5e1' : isP ? '#f0f9ff' : '#fff1f2', nowSec);
+
+      if (u.level > 1) {
+        const lx = tx + m.tile * 0.18; const ly = ty + m.tile * 0.18;
+        ctx.beginPath(); ctx.arc(lx, ly, Math.max(7.5, m.tile * 0.12), 0, Math.PI * 2);
+        ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.strokeStyle = PALETTE.amber; ctx.lineWidth = 1.4; ctx.stroke();
+        ctx.fillStyle = '#fef08a'; ctx.font = '700 9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(u.level), lx, ly + 0.5);
+      }
+
+      ctx.globalAlpha = 1;
+      const bw = m.tile * 0.74; const bh = Math.max(4.5, m.tile * 0.085);
+      const bx = tx + (m.tile - bw) / 2; const by = ty + m.tile - bh - m.tile * 0.1;
+      ctx.fillStyle = '#020617'; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = isP ? PALETTE.player : PALETTE.enemy; ctx.fillRect(bx + 1, by + 1, Math.max(2, (bw - 2) * (u.hp / u.maxHp)), bh - 2);
+      if (isP) {
+        const xpY = by + bh + 1.8;
+        ctx.fillStyle = '#020617'; ctx.fillRect(bx, xpY, bw, 2.2);
+        ctx.fillStyle = PALETTE.xp; ctx.fillRect(bx, xpY, bw * Math.min(1, u.xp / u.xpNext), 2.2);
+      }
+      ctx.restore();
+    });
+
+    state.waves.forEach(w => {
+      const t = Math.min(1, w.age / w.dur);
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.strokeStyle = w.color; ctx.lineWidth = Math.max(1.5, (1 - t) * 4.5);
+      ctx.beginPath(); ctx.arc(m.bx + (w.x + 0.5) * m.tile, m.by + (w.y + 0.5) * m.tile, (1 - Math.pow(1 - t, 3)) * w.maxR * m.tile, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    });
+    state.slashes.forEach(s => {
+      const t = Math.min(1, s.age / s.dur);
+      ctx.save(); ctx.translate(m.bx + (s.x + 0.5) * m.tile, m.by + (s.y + 0.5) * m.tile); ctx.rotate(s.angle);
+      ctx.globalAlpha = Math.max(0, 1 - t); ctx.strokeStyle = s.color; ctx.lineWidth = Math.max(2, (1 - t) * 5.5); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, 0, m.tile * 0.42, -Math.PI * 0.42, Math.PI * 0.42); ctx.stroke(); ctx.restore();
+    });
+    state.bolts.forEach(b => {
+      const t = Math.min(1, b.age / b.dur);
+      const px = m.bx + (b.fx + (b.tx - b.fx) * t + 0.5) * m.tile;
+      const py = m.by + (b.fy + (b.ty - b.fy) * t + 0.5) * m.tile;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+    });
+    state.particles.forEach(p => {
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - p.age / p.dur); ctx.fillStyle = p.color;
+      ctx.fillRect(m.bx + p.x * m.tile, m.by + p.y * m.tile, p.size, p.size); ctx.restore();
+    });
+    state.floats.forEach(f => {
+      const t = Math.min(1, f.age / f.dur);
+      ctx.save(); ctx.globalAlpha = t < 0.72 ? 1 : (1 - t) / 0.28;
+      ctx.font = '700 14px monospace'; ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(2,6,23,0.9)';
+      const fx = m.bx + (f.x + 0.5) * m.tile; const fy = m.by + (f.y + 0.28) * m.tile - t * m.tile * 0.7;
+      ctx.strokeText(f.text, fx, fy); ctx.fillStyle = f.color; ctx.fillText(f.text, fx, fy);
+      ctx.restore();
+    });
+    ctx.restore();
+
+    if (state.callout) {
+      const rw = Math.min(canvasW - 32, m.size + 40);
+      rrect((canvasW - rw) / 2, 10, rw, 28, 6);
+      ctx.fillStyle = 'rgba(15,23,42,0.9)'; ctx.fill(); ctx.strokeStyle = PALETTE.border; ctx.stroke();
+      ctx.fillStyle = '#cbd5e1'; ctx.font = '500 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(state.callout, canvasW / 2, 24, rw - 20);
+    }
+
+    if (state.screen === 'playing' && state.hoveredTile) {
+      const ht = state.hoveredTile;
+      const hu = unitAt(ht.col, ht.row);
+      const showForecast = sel && !sel.acted && hu && hu.faction === 'enemy' && state.attackable.has(hu.id);
+      const isPUnit = hu && hu.faction === 'player';
+      const cw = 252; const ch = showForecast ? 148 : hu ? (isPUnit ? 128 : 108) : 52;
+      let x = m.bx + (ht.col + 0.5) * m.tile + m.tile * 0.65;
+      if (x + cw > canvasW - 12) x = m.bx + (ht.col + 0.5) * m.tile - m.tile * 0.65 - cw;
+      x = Math.max(12, Math.min(canvasW - cw - 12, x));
+      let y = Math.max(44, Math.min(canvasH - ch - 12, m.by + (ht.row + 0.5) * m.tile - ch / 2));
+
+      rrect(x, y, cw, ch, 8);
+      ctx.fillStyle = PALETTE.panel; ctx.fill();
+      ctx.strokeStyle = showForecast ? PALETTE.enemy : PALETTE.panelBorder; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+
+      if (showForecast) {
+        const fc = buildForecast(sel, sel, hu, sel.tilesMoved);
+        const xpGain = calcCombatXp(fc.dmg, fc.defDies);
+        ctx.font = '700 11px monospace'; ctx.fillStyle = PALETTE.sub; ctx.fillText('COMBAT FORECAST', x + 12, y + 10);
+        ctx.font = '700 13px monospace'; ctx.fillStyle = PALETTE.player;
+        ctx.fillText(`${sel.name} Lv${sel.level}: ${fc.dmg} DMG (${fc.hit}%)`, x + 12, y + 32, cw - 24);
+        ctx.font = '500 11px monospace'; ctx.fillStyle = PALETTE.text;
+        ctx.fillText(`Target HP: ${hu.hp} -> ${Math.max(0, hu.hp - fc.dmg)}`, x + 12, y + 54);
+        ctx.fillStyle = sel.xp + xpGain >= sel.xpNext ? PALETTE.amber : PALETTE.xp;
+        ctx.fillText(`Reward: +${xpGain} XP${sel.xp + xpGain >= sel.xpNext ? ' (LVL UP!)' : ''}`, x + 12, y + 74);
+        ctx.fillStyle = fc.canCounter ? PALETTE.amber : PALETTE.heal;
+        ctx.fillText(fc.canCounter ? `Counter: ${fc.cDmg} DMG (${fc.cHit}%)` : 'Counter: NO COUNTER', x + 12, y + 98);
+        ctx.fillStyle = PALETTE.sub;
+        ctx.fillText(`Triangle: ${fc.tri.toUpperCase()}`, x + 12, y + 120);
+      } else if (hu) {
+        ctx.font = '700 13px system-ui, sans-serif'; ctx.fillStyle = isPUnit ? PALETTE.player : PALETTE.enemy;
+        ctx.fillText(`${hu.name} · LV ${hu.level}`, x + 12, y + 10);
+        ctx.font = '500 11px monospace'; ctx.fillStyle = PALETTE.text;
+        ctx.fillText(`HP ${hu.hp}/${hu.maxHp} · ATK ${hu.atk} · DEF ${hu.def} · MOV ${hu.mov}`, x + 12, y + 32);
+        ctx.fillStyle = PALETTE.sub;
+        ctx.fillText(ARCHETYPES[hu.cls].trait, x + 12, y + 54, cw - 24);
+        let tyPos = y + 78;
+        if (isPUnit) {
+          ctx.fillStyle = PALETTE.xp;
+          ctx.fillText(`XP ${hu.xp}/${hu.xpNext}`, x + 12, y + 76);
+          ctx.fillStyle = '#1e293b'; ctx.fillRect(x + 96, y + 79, cw - 110, 6);
+          ctx.fillStyle = PALETTE.xp; ctx.fillRect(x + 96, y + 79, (cw - 110) * Math.min(1, hu.xp / hu.xpNext), 6);
+          tyPos = y + 98;
+        }
+        ctx.fillStyle = PALETTE.muted;
+        ctx.fillText(`${TERRAIN[state.board[ht.row][ht.col].terrain].label}: ${TERRAIN[state.board[ht.row][ht.col].terrain].summary}`, x + 12, tyPos, cw - 24);
+      } else {
+        const tm = TERRAIN[state.board[ht.row][ht.col].terrain];
+        ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = PALETTE.text; ctx.fillText(tm.label, x + 12, y + 10);
+        ctx.font = '500 11px monospace'; ctx.fillStyle = PALETTE.sub; ctx.fillText(tm.summary, x + 12, y + 30);
+      }
+    }
+
+    if (state.banner) {
+      const p = state.banner.age / state.banner.dur;
+      const a = Math.min(1, p / 0.18) * (p > 0.75 ? Math.max(0, (1 - p) / 0.25) : 1);
+      ctx.save(); ctx.globalAlpha = a;
+      const by = m.by + m.size / 2 - 36;
+      ctx.fillStyle = 'rgba(2,6,23,0.88)'; ctx.fillRect(m.bx, by, m.size, 72);
+      ctx.fillStyle = state.banner.color; ctx.fillRect(m.bx, by, m.size, 2); ctx.fillRect(m.bx, by + 70, m.size, 2);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '700 22px system-ui, sans-serif'; ctx.fillStyle = PALETTE.text; ctx.fillText(state.banner.title, m.bx + m.size / 2, by + 26);
+      ctx.font = '500 12px monospace'; ctx.fillStyle = state.banner.color; ctx.fillText(state.banner.sub, m.bx + m.size / 2, by + 50);
+      ctx.restore();
+    }
+
+    if (state.screen === 'upgrade') {
+      ctx.fillStyle = 'rgba(8,13,26,0.92)'; ctx.fillRect(0, 0, canvasW, canvasH);
+      const cx = canvasW / 2; const top = Math.max(48, canvasH * 0.15);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '600 12px monospace'; ctx.fillStyle = PALETTE.heal; ctx.fillText(`STAGE ${state.stage} CLEARED`, cx, top);
+      ctx.font = '700 26px system-ui, sans-serif'; ctx.fillStyle = PALETTE.text; ctx.fillText('Select One Tactical Upgrade', cx, top + 34);
+      const cw = Math.min(204, (canvasW - 80) / 3); const ch = 176; const gap = 16;
+      state.choices.forEach((chItem, i) => {
+        const id = `up:${chItem.id}`;
+        const x = cx - (cw * 3 + gap * 2) / 2 + i * (cw + gap); const y = top + 84;
+        rrect(x, y, cw, ch, 10);
+        ctx.fillStyle = state.hoveredBtn === id ? '#1e293b' : '#131d33'; ctx.fill();
+        ctx.strokeStyle = state.hoveredBtn === id ? PALETTE.player : '#334155'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.font = '600 11px monospace'; ctx.fillStyle = PALETTE.player; ctx.fillText(`${i + 1} · ${chItem.tag}`, x + 14, y + 14);
+        ctx.font = '700 15px system-ui, sans-serif'; ctx.fillStyle = PALETTE.text; ctx.fillText(chItem.title, x + 14, y + 36, cw - 28);
+        ctx.font = '400 12px system-ui, sans-serif'; ctx.fillStyle = PALETTE.sub; ctx.fillText(chItem.summary, x + 14, y + 66, cw - 28);
+        hitBoxes.push({ id, x, y, w: cw, h: ch });
+      });
+    }
+
+    if (state.screen === 'defeat') {
+      ctx.fillStyle = 'rgba(8,13,26,0.9)'; ctx.fillRect(0, 0, canvasW, canvasH);
+      const cx = canvasW / 2; const cy = canvasH / 2;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '700 34px system-ui, sans-serif'; ctx.fillStyle = PALETTE.enemy; ctx.fillText('Sovereign Fallen', cx, cy - 64);
+      ctx.font = '500 13px monospace'; ctx.fillStyle = PALETTE.text;
+      ctx.fillText(`Stages Cleared: ${state.stats.cleared} · Foes Defeated: ${state.stats.defeated}`, cx, cy - 12);
+      const bw = 180; const bh = 46; const bx = cx - bw / 2; const by = cy + 36;
+      rrect(bx, by, bw, bh, 8);
+      ctx.fillStyle = state.hoveredBtn === 'restart' ? '#7dd3fc' : PALETTE.player; ctx.fill();
+      ctx.font = '700 15px system-ui, sans-serif'; ctx.fillStyle = '#082f49'; ctx.fillText('Play Again', cx, by + bh / 2);
+      hitBoxes.push({ id: 'restart', x: bx, y: by, w: bw, h: bh });
+    }
+  }
+
+  function resize() {
+    const rect = stageWrap.getBoundingClientRect();
+    canvasW = Math.max(320, Math.floor(rect.width));
+    canvasH = Math.max(360, Math.floor(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(canvasW * dpr);
+    canvas.height = Math.floor(canvasH * dpr);
+    canvas.style.width = `${canvasW}px`;
+    canvas.style.height = `${canvasH}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function pointerToBoard(px, py) {
+    const m = metrics();
+    const rx = px - m.bx; const ry = py - m.by;
+    if (rx < 0 || ry < 0 || rx >= m.size || ry >= m.size) return null;
+    return { col: Math.floor(rx / m.tile), row: Math.floor(ry / m.tile) };
+  }
+
+  canvas.addEventListener('pointermove', e => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left; const y = e.clientY - r.top;
+    const hit = hitBoxes.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    state.hoveredBtn = hit ? hit.id : null;
+    state.hoveredTile = pointerToBoard(x, y);
+    canvas.style.cursor = hit || state.hoveredTile ? 'pointer' : 'default';
+  });
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button === 2) return;
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left; const y = e.clientY - r.top;
+    const hit = hitBoxes.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    if (hit) {
+      if (hit.id === 'deploy' || hit.id === 'restart') startCampaign();
+      else if (hit.id.startsWith('up:')) pickUpgrade(hit.id.slice(3));
+      return;
+    }
+    const coord = pointerToBoard(x, y);
+    if (coord) { state.hoveredTile = coord; handleBoardClick(coord); }
+  });
+
+  canvas.addEventListener('contextmenu', e => { e.preventDefault(); undoMove(); });
+  btnUndo.addEventListener('click', undoMove);
+  btnWait.addEventListener('click', waitSelected);
+  btnEndTurn.addEventListener('click', endTurn);
+  btnRestart.addEventListener('click', startCampaign);
+  btnMute.addEventListener('click', () => { audio.muted = !audio.muted; syncHud(); });
+
+  window.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (k === 'z') undoMove();
+    else if (k === ' ') { e.preventDefault(); waitSelected(); }
+    else if (k === 'e') endTurn();
+    else if ((k === '1' || k === '2' || k === '3') && state.screen === 'upgrade') {
+      const ch = state.choices[Number(k) - 1];
+      if (ch) pickUpgrade(ch.id);
+    }
+  });
+
+  window.addEventListener('resize', resize);
+  resize();
+  syncHud();
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (state.shake > 0.05) state.shake *= Math.pow(0.0015, dt); else state.shake = 0;
+    state.units.forEach(u => { if (u.flash > 0) u.flash = Math.max(0, u.flash - dt); });
+    if (moveAnim) {
+      const u = state.units.find(x => x.id === moveAnim.id);
+      if (!u || moveAnim.path.length < 2) moveAnim = null;
+      else {
+        moveAnim.prog += dt / 0.11;
+        while (moveAnim.prog >= 1 && moveAnim.seg < moveAnim.path.length - 2) { moveAnim.prog -= 1; moveAnim.seg += 1; }
+        const a = moveAnim.path[moveAnim.seg]; const b = moveAnim.path[moveAnim.seg + 1];
+        const t = 1 - Math.pow(1 - Math.min(1, moveAnim.prog), 3);
+        u.rx = a.col + (b.col - a.col) * t; u.ry = a.row + (b.row - a.row) * t;
+        if (moveAnim.seg >= moveAnim.path.length - 2 && moveAnim.prog >= 1) {
+          const cb = moveAnim.done; moveAnim = null; cb();
+        }
+      }
+    }
+    state.floats = state.floats.filter(f => { f.age += dt; return f.age < f.dur; });
+    state.bolts = state.bolts.filter(b => { b.age += dt; return b.age < b.dur; });
+    state.waves = state.waves.filter(w => { w.age += dt; return w.age < w.dur; });
+    state.slashes = state.slashes.filter(s => { s.age += dt; return s.age < s.dur; });
+    state.particles = state.particles.filter(p => { p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(0.08, dt); p.vy *= Math.pow(0.08, dt); return p.age < p.dur; });
+    if (state.banner) { state.banner.age += dt; if (state.banner.age >= state.banner.dur) state.banner = null; }
+    render(now / 1000);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
