@@ -5,7 +5,8 @@ import {
   hasAdjacentSovereignAura,
   isDistanceInAttackRange,
 } from './combat';
-import {getIqRankTier} from './iqSystem';
+import {getIqRankTier, hasSharpStrategistSightline} from './iqSystem';
+import {chooseBestEnemyDecision} from './enemyAi';
 import {calculateCombatXp, calculateSupportHealXp} from './leveling';
 import {renderBattleScene} from './battleRenderer';
 import {
@@ -1456,6 +1457,79 @@ function drawCombatForecastCard(
   ctx.restore();
 }
 
+function drawTacticalReadSightline(
+  ctx: CanvasRenderingContext2D,
+  enemy: Unit,
+  target: Unit,
+  metrics: BoardMetrics,
+  timeSeconds: number,
+): void {
+  const startX = metrics.boardX + (enemy.col + 0.5) * metrics.tileSize;
+  const startY = metrics.boardY + (enemy.row + 0.5) * metrics.tileSize;
+  const endX = metrics.boardX + (target.col + 0.5) * metrics.tileSize;
+  const endY = metrics.boardY + (target.row + 0.5) * metrics.tileSize;
+
+  ctx.save();
+  ctx.setLineDash([8, 5]);
+  ctx.lineDashOffset = -timeSeconds * 35;
+  ctx.strokeStyle = '#f43f5e';
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = '#f43f5e';
+  ctx.shadowBlur = 9;
+
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2;
+  const radius = metrics.tileSize * 0.42;
+  ctx.beginPath();
+  ctx.arc(endX, endY, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const crossOffset = radius + 4;
+  ctx.beginPath();
+  ctx.moveTo(endX - crossOffset, endY);
+  ctx.lineTo(endX - radius + 2, endY);
+  ctx.moveTo(endX + crossOffset, endY);
+  ctx.lineTo(endX + radius - 2, endY);
+  ctx.moveTo(endX, endY - crossOffset);
+  ctx.lineTo(endX, endY - radius + 2);
+  ctx.moveTo(endX, endY + crossOffset);
+  ctx.lineTo(endX, endY + radius - 2);
+  ctx.stroke();
+
+  const midX = (startX + endX) / 2;
+  const midY = (startY + endY) / 2;
+  const tagWidth = 152;
+  const tagHeight = 22;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+  ctx.strokeStyle = '#f43f5e';
+  ctx.lineWidth = 1;
+  traceRoundedRect(
+    ctx,
+    midX - tagWidth / 2,
+    midY - tagHeight / 2,
+    tagWidth,
+    tagHeight,
+    5,
+  );
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = '700 10px monospace';
+  ctx.fillStyle = '#fef08a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`READ: TARGETS ${target.name.toUpperCase()}`, midX, midY + 1);
+
+  ctx.restore();
+}
+
 function drawUnitAndTerrainTooltip(
   ctx: CanvasRenderingContext2D,
   snapshot: GameSnapshot,
@@ -2155,8 +2229,8 @@ function drawEndScreenOverlay(
   ctx.fillStyle = PALETTE.textSecondary;
   ctx.fillText(
     isVictory
-      ? 'The Brotherhood held Xadion from the Hall of the Gods to the Crown of the Thunderhead.'
-      : `Both Twin Commanders must survive the crossing · Stage ${snapshot.stageNumber} · Turn ${snapshot.turnNumber}`,
+      ? 'The Champions held Xadion from the Hall of the Gods to the Crown of the Thunderhead.'
+      : `The Black Knight must survive the crossing · Stage ${snapshot.stageNumber} · Turn ${snapshot.turnNumber}`,
     centerX,
     centerY - 34,
     metrics.canvasWidth - 48,
@@ -2371,7 +2445,9 @@ export function renderTacticsCanvas(
       tileX,
       tileY,
       metrics.tileSize,
-      unit.id === snapshot.selectedUnitId || isHighlightedEnemyActor,
+      unit.id === snapshot.selectedUnitId ||
+        isHighlightedEnemyActor ||
+        unit.id === snapshot.activeUnitId,
       hasAura,
       timeSeconds,
     );
@@ -2475,6 +2551,36 @@ export function renderTacticsCanvas(
       snapshot.hoveredTile.col,
       snapshot.hoveredTile.row,
     );
+
+    if (
+      hoveredUnit &&
+      hoveredUnit.faction === 'enemy' &&
+      hasSharpStrategistSightline(snapshot.iqState.current)
+    ) {
+      const decision = chooseBestEnemyDecision(
+        hoveredUnit,
+        snapshot.board,
+        snapshot.units,
+        snapshot.effects,
+        snapshot.dominantDoctrine,
+        snapshot.iqState.current,
+      );
+      if (decision.targetId) {
+        const targetUnit = snapshot.units.find(
+          (candidate) => candidate.id === decision.targetId && candidate.hp > 0,
+        );
+        if (targetUnit) {
+          drawTacticalReadSightline(
+            ctx,
+            hoveredUnit,
+            targetUnit,
+            metrics,
+            timeSeconds,
+          );
+        }
+      }
+    }
+
     const isHealableHover =
       selectedUnit !== undefined &&
       hoveredUnit !== undefined &&

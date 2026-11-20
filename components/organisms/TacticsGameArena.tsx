@@ -6,6 +6,7 @@ import {TacticalHudBar} from '@/components/molecules/TacticalHudBar';
 import {WeaponTriangleStrip} from '@/components/molecules/WeaponTriangleStrip';
 import {CharacterInfoModal} from '@/components/organisms/CharacterInfoModal';
 import {PartyPrepScreen} from '@/components/organisms/PartyPrepScreen';
+import {PostStageIqReportModal} from '@/components/organisms/PostStageIqReportModal';
 import {WorldMapScreen} from '@/components/organisms/WorldMapScreen';
 import {tacticalAudio} from '@/lib/tactics/audio';
 import {
@@ -22,6 +23,7 @@ import {INITIAL_CONSUMABLES, STARTING_GOLD} from '@/lib/tactics/rpgCatalog';
 import {spriteAtlas} from '@/lib/tactics/spriteAtlas';
 import type {
   BoardMode,
+  ChampionSkillId,
   ConsumableType,
   DifficultyMode,
   EquipmentSlot,
@@ -83,6 +85,11 @@ const DEFAULT_HUD: HudSummary = {
   iqLastReason: null,
   canChronoRewind: false,
   chronoUsedThisBattle: false,
+  chronoRewindCharges: 1,
+  maxChronoRewindCharges: 1,
+  activeUnitId: null,
+  initiativeQueue: [],
+  objectiveSummary: 'Rout All Enemies',
 };
 
 export function TacticsGameArena() {
@@ -374,6 +381,10 @@ export function TacticsGameArena() {
     controllerRef.current?.useConsumableOnSelectedUnit(consumableId);
   }, []);
 
+  const handleTriggerChampionSkill = useCallback((skillId: ChampionSkillId) => {
+    controllerRef.current?.triggerChampionSkill(skillId);
+  }, []);
+
   const handleDismissInspectedUnit = useCallback(() => {
     controllerRef.current?.dismissInspectedUnit();
   }, []);
@@ -539,6 +550,7 @@ export function TacticsGameArena() {
         onUseConsumable={handleUseConsumable}
         onConfirmChiDeployment={handleConfirmChiDeployment}
         onChronoRewind={handleChronoRewind}
+        onTriggerChampionSkill={handleTriggerChampionSkill}
       />
 
       {isCanvasVisible && (
@@ -559,6 +571,11 @@ export function TacticsGameArena() {
         onSelfHealUnit={handleSelfHealUnit}
         onEquipItem={handleEquipItem}
         onUnequipSlot={handleUnequipSlot}
+      />
+
+      <PostStageIqReportModal
+        report={hud.lastVictoryReward}
+        onDismiss={handleDismissRewardBanner}
       />
     </div>
   );

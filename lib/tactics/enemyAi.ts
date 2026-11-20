@@ -93,6 +93,10 @@ function scoreDoctrineTargetPriority(
   target: Unit,
   doctrine: DominantDoctrine,
 ): number {
+  const hasTauntBarrier = (target.shadowBarrierTurns ?? 0) > 0;
+  if (hasTauntBarrier) {
+    return 100;
+  }
   if (target.unitClass === 'sovereign') {
     return 18;
   }

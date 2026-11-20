@@ -1,13 +1,110 @@
+import {createUnitFromArchetype} from './constants';
 import type {
   ConsumableInventory,
   ConsumableItemSpec,
   ConsumableType,
   EquipmentItem,
+  HeroCharacterId,
   TavernRecruitOffer,
+  TrenChessGlyph,
   Unit,
   UnitClass,
   UpgradeEffects,
 } from './types';
+
+export interface ChampionProfile {
+  heroId: HeroCharacterId;
+  name: string;
+  title: string;
+  unitClass: UnitClass;
+  trenChessGlyph: TrenChessGlyph;
+  roleDescription: string;
+  hasBloodAndVoid?: boolean;
+  isGuestMentor?: boolean;
+}
+
+export const CHAMPION_ROSTER: Record<HeroCharacterId, ChampionProfile> = {
+  'black-knight': {
+    heroId: 'black-knight',
+    name: 'The Black Knight',
+    title: 'Dread Vanguard · King',
+    unitClass: 'vanguard',
+    trenChessGlyph: '♔',
+    roleDescription: 'Amnesiac dread vanguard whose Blood & Void skills spend HP to unleash escalating void damage.',
+    hasBloodAndVoid: true,
+  },
+  'gaea': {
+    heroId: 'gaea',
+    name: 'Gaea',
+    title: 'Geomancer / Mender · Queen',
+    unitClass: 'healer',
+    trenChessGlyph: '♕',
+    roleDescription: 'Shrine earth-mender whose Sanctuary pulses sustain frontline tanks.',
+  },
+  'x-keeper': {
+    heroId: 'x-keeper',
+    name: 'X, The Keeper',
+    title: 'Hall Keeper · Mentor',
+    unitClass: 'sovereign',
+    trenChessGlyph: '♔',
+    roleDescription: 'Keeper of the Hall of the Gods whose Lantern Rally rallies adjacent companions.',
+    isGuestMentor: true,
+  },
+  'luna': {
+    heroId: 'luna',
+    name: 'Luna',
+    title: 'Sky Dragoon / Archer · Knight',
+    unitClass: 'striker',
+    trenChessGlyph: '♘',
+    roleDescription: 'High-mobility aerial dragoon who vaults flooded chasms and snipes backline threats.',
+  },
+  'sol': {
+    heroId: 'sol',
+    name: 'Sol',
+    title: 'Solar Paladin · Rook',
+    unitClass: 'vanguard',
+    trenChessGlyph: '♖',
+    roleDescription: 'Heavy frontline fortress anchor with Zone of Control halting enemy advance.',
+  },
+  'night': {
+    heroId: 'night',
+    name: 'Night',
+    title: 'Void Arcanist · Bishop',
+    unitClass: 'arcanist',
+    trenChessGlyph: '♗',
+    roleDescription: 'Old Pantheon void weaver channeling armor-piercing abyssal artillery.',
+  },
+  'infinidee': {
+    heroId: 'infinidee',
+    name: 'Infinidee',
+    title: 'Chrono Seer · Specialist',
+    unitClass: 'arcanist',
+    trenChessGlyph: '✦',
+    roleDescription: 'Chrono seer who manipulates the Speed Initiative Queue and empowers Chrono Rewind.',
+  },
+};
+
+export function createChampionUnit(
+  heroId: HeroCharacterId,
+  col: number,
+  row: number,
+  effects: UpgradeEffects,
+): Unit {
+  const profile = CHAMPION_ROSTER[heroId];
+  const unit = createUnitFromArchetype(
+    `p-${heroId}`,
+    profile.name,
+    profile.unitClass,
+    'player',
+    col,
+    row,
+    effects,
+  );
+  unit.heroId = heroId;
+  unit.trenChessGlyph = profile.trenChessGlyph;
+  unit.hasBloodAndVoid = profile.hasBloodAndVoid ?? false;
+  return unit;
+}
 
 export const STARTING_GOLD = 120;
 
@@ -101,7 +198,7 @@ export const EQUIPMENT_CATALOG: EquipmentItem[] = [
     name: 'Oathkeeper Edge',
     slot: 'weapon',
     price: 135,
-    summary: '+3 ATK and +1 DEF for Twin Commanders X & Sol.',
+    summary: '+3 ATK and +1 DEF for Sovereign commanders.',
     allowedClasses: ['sovereign'],
     attackBonus: 3,
     defenseBonus: 1,
@@ -594,6 +691,7 @@ export interface ComputedEquipmentBonuses {
   attackBonus: number;
   defenseBonus: number;
   moveBonus: number;
+  speedBonus: number;
   maxHpBonus: number;
   healBonus: number;
   rangeBonus: number;
@@ -608,6 +706,7 @@ export function computeUnitEquipmentBonuses(unit: Unit): ComputedEquipmentBonuse
     attackBonus: (weapon?.attackBonus ?? 0) + (accessory?.attackBonus ?? 0),
     defenseBonus: (weapon?.defenseBonus ?? 0) + (accessory?.defenseBonus ?? 0),
     moveBonus: (weapon?.moveBonus ?? 0) + (accessory?.moveBonus ?? 0),
+    speedBonus: (weapon?.speedBonus ?? 0) + (accessory?.speedBonus ?? 0),
     maxHpBonus: (weapon?.maxHpBonus ?? 0) + (accessory?.maxHpBonus ?? 0),
     healBonus: (weapon?.healBonus ?? 0) + (accessory?.healBonus ?? 0),
     rangeBonus: (weapon?.rangeBonus ?? 0) + (accessory?.rangeBonus ?? 0),
@@ -622,12 +721,14 @@ export function getUnitEffectiveStats(
   attack: number;
   defense: number;
   move: number;
+  speed: number;
   maxHp: number;
   healPower: number;
   maxRange: number;
   critChance: number;
   equipmentAttackBonus: number;
   equipmentDefenseBonus: number;
+  equipmentSpeedBonus: number;
 } {
   const gear = computeUnitEquipmentBonuses(unit);
   const isPlayer = unit.faction === 'player';
@@ -638,11 +739,13 @@ export function getUnitEffectiveStats(
     attack: unit.attack + gear.attackBonus + (unit.tempAttackBonus ?? 0),
     defense: unit.defense + gear.defenseBonus,
     move: unit.move + gear.moveBonus + vanguardMoveBonus,
+    speed: (unit.speed ?? 5) + gear.speedBonus,
     maxHp: unit.maxHp + gear.maxHpBonus,
     healPower: unit.healPower + gear.healBonus,
     maxRange: unit.maxRange + gear.rangeBonus,
     critChance: Math.min(95, (unit.critChance ?? 5) + gear.critBonus),
     equipmentAttackBonus: gear.attackBonus + (unit.tempAttackBonus ?? 0),
     equipmentDefenseBonus: gear.defenseBonus,
+    equipmentSpeedBonus: gear.speedBonus,
   };
 }

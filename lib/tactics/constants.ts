@@ -119,6 +119,7 @@ export const PALETTE = {
   textMuted: '#64748b',
   panelSurface: 'rgba(11, 16, 33, 0.96)',
   panelBorder: '#332924',
+  accentVoid: '#a855f7',
 } as const;
 
 export const INITIAL_XP_TO_LEVEL = 50;
@@ -187,6 +188,7 @@ export interface UnitArchetypeConfig {
   attack: number;
   defense: number;
   move: number;
+  speed: number;
   minRange: number;
   maxRange: number;
   critChance: number;
@@ -210,6 +212,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 8,
     defense: 3,
     move: 3,
+    speed: 4,
     minRange: 1,
     maxRange: 1,
     critChance: 5,
@@ -231,6 +234,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 9,
     defense: 1,
     move: 5,
+    speed: 7,
     minRange: 1,
     maxRange: 1,
     critChance: 15,
@@ -252,6 +256,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 9,
     defense: 1,
     move: 3,
+    speed: 5,
     minRange: 2,
     maxRange: 3,
     critChance: 10,
@@ -274,6 +279,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 8,
     defense: 2,
     move: 3,
+    speed: 6,
     minRange: 1,
     maxRange: 1,
     critChance: 15,
@@ -295,6 +301,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 6,
     defense: 2,
     move: 3,
+    speed: 5,
     minRange: 1,
     maxRange: 2,
     critChance: 5,
@@ -316,6 +323,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 8,
     defense: 1,
     move: 3,
+    speed: 6,
     minRange: 2,
     maxRange: 4,
     critChance: 15,
@@ -338,6 +346,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 10,
     defense: 1,
     move: 2,
+    speed: 4,
     minRange: 3,
     maxRange: 5,
     critChance: 35,
@@ -360,6 +369,7 @@ export const UNIT_ARCHETYPES: Record<UnitClass, UnitArchetypeConfig> = {
     attack: 4,
     defense: 0,
     move: 3,
+    speed: 5,
     minRange: 1,
     maxRange: 3,
     critChance: 5,
@@ -445,6 +455,7 @@ export function createUnitFromArchetype(
     attack: config.attack + extraAttack,
     defense: config.defense,
     move: config.move + extraMove,
+    speed: config.speed,
     minRange: config.minRange,
     maxRange: config.maxRange,
     canFly: config.canFly,
@@ -613,7 +624,7 @@ export const UPGRADE_CATALOG: UpgradeOption[] = [
   {
     id: 'sovereign-banner',
     title: 'Brotherhood Pact Oath',
-    summary: 'Twin Commander aura grants an extra +1 Attack to adjacent allies.',
+    summary: 'Sovereign aura grants an extra +1 Attack to adjacent allies.',
     tag: 'Twin Pact',
     apply: (units, effects, nextUnitCounter) => {
       const updatedEffects: UpgradeEffects = {

@@ -16,6 +16,35 @@ export type BoardMode = 'dynamic' | 'classic64';
 
 export type DeploymentPhase = 'CHI_SWAP' | 'ACTIVE';
 
+export type HeroCharacterId =
+  | 'black-knight'
+  | 'gaea'
+  | 'x-keeper'
+  | 'luna'
+  | 'sol'
+  | 'night'
+  | 'infinidee';
+
+export type TrenChessGlyph = '♔' | '♕' | '♘' | '♖' | '♗' | '✦';
+
+export type ChampionSkillId =
+  | 'abyssalStrike'
+  | 'soulDrain'
+  | 'shadowBarrier'
+  | 'voidNova'
+  | 'lanternRally'
+  | 'sanctuaryPulse'
+  | 'chronoWarp';
+
+export interface ChampionSkillSpec {
+  id: ChampionSkillId;
+  name: string;
+  description: string;
+  hpCostPercent: number;
+  targetType: 'singleEnemy' | 'self' | 'aoeSelf3x3';
+  unlockedAtLevel: number;
+}
+
 export interface IqEventRecord {
   delta: number;
   reason: string;
@@ -50,10 +79,24 @@ export interface EnemySightlinePreview {
   actionType: 'attack' | 'heal' | 'wait';
 }
 
+export interface InitiativeQueueItem {
+  unitId: string;
+  name: string;
+  unitClass: UnitClass;
+  faction: Faction;
+  speed: number;
+  currentHp: number;
+  maxHp: number;
+  isActive: boolean;
+}
+
 export interface ChronoRewindSnapshot {
   units: Unit[];
   turnNumber: number;
   phase: TurnPhase;
+  turnQueue: string[];
+  activeUnitId: string | null;
+  chronoRewindCharges: number;
   playstyle: PlaystyleProfile;
   consumables: ConsumableInventory;
   stats: {
@@ -94,6 +137,7 @@ export interface EquipmentItem {
   healBonus: number;
   rangeBonus: number;
   critBonus?: number;
+  speedBonus?: number;
 }
 
 export interface ConsumableItemSpec {
@@ -183,6 +227,7 @@ export interface Unit {
   attack: number;
   defense: number;
   move: number;
+  speed: number;
   minRange: number;
   maxRange: number;
   canFly: boolean;
@@ -205,6 +250,11 @@ export interface Unit {
   weaponId: string | null;
   accessoryId: string | null;
   tempAttackBonus: number;
+  heroId?: HeroCharacterId;
+  trenChessGlyph?: TrenChessGlyph;
+  hasBloodAndVoid?: boolean;
+  shadowBarrierTurns?: number;
+  activeSkillId?: ChampionSkillId | null;
 }
 
 export interface InspectedUnitDetails {
@@ -223,6 +273,7 @@ export interface InspectedUnitDetails {
   terrainDefense: number;
   terrainEvasion: number;
   move: number;
+  speed: number;
   minRange: number;
   maxRange: number;
   canFly: boolean;
@@ -248,11 +299,18 @@ export interface InspectedUnitDetails {
   equipmentAttackBonus: number;
   equipmentDefenseBonus: number;
   equipmentMoveBonus: number;
+  equipmentSpeedBonus: number;
   equipmentMaxHpBonus: number;
   equipmentHealBonus: number;
   equipmentRangeBonus: number;
   equipmentCritBonus: number;
   canEditEquipment: boolean;
+  heroId?: HeroCharacterId;
+  trenChessGlyph?: TrenChessGlyph;
+  hasBloodAndVoid?: boolean;
+  shadowBarrierTurns?: number;
+  activeSkillId?: ChampionSkillId | null;
+  skills?: ChampionSkillSpec[];
 }
 
 export interface CombatForecast {
@@ -423,6 +481,8 @@ export interface ActiveEnemyActionTelegraph {
   phase: 'moving' | 'targeting';
 }
 
+export type ObjectiveType = 'rout' | 'defeatBoss' | 'defend' | 'escape';
+
 export interface StageBlueprint {
   stageNumber: number;
   title: string;
@@ -433,6 +493,9 @@ export interface StageBlueprint {
   playerSpawns: GridCoord[];
   enemySquad: Array<{unitClass: UnitClass; col: number; row: number; name: string}>;
   calloutText: string;
+  objectiveType?: ObjectiveType;
+  defendTurns?: number;
+  escapeRow?: number;
 }
 
 export interface HitBoxRect {
@@ -606,6 +669,13 @@ export interface GameSnapshot {
   iqState: IqRatingState;
   enemySightline: EnemySightlinePreview | null;
   canChronoRewind: boolean;
+  chronoRewindCharges: number;
+  maxChronoRewindCharges: number;
+  activeUnitId: string | null;
+  initiativeQueue: InitiativeQueueItem[];
+  objectiveType?: ObjectiveType;
+  objectiveSummary?: string;
+  defendTurnsRemaining?: number;
   stats: {
     enemiesDefeated: number;
     stagesCleared: number;

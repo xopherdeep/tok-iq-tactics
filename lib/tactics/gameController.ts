@@ -11,6 +11,7 @@ import {
 import {
   buildCombatForecast,
   computeCriticalDamage,
+  getBloodAndVoidBonus,
   getManhattanDistance,
   hasAdjacentSovereignAura,
   hasBrotherhoodPactBond,
@@ -40,11 +41,18 @@ import {
   hasSharpStrategistSightline,
   recordIqDelta,
 } from './iqSystem';
-import {applyCombatXpToUnit, applySupportXpToUnit} from './leveling';
+import {
+  applyCombatXpToUnit,
+  applySharedSquadXp,
+  applySupportXpToUnit,
+  CHAMPION_SKILL_CATALOG,
+} from './leveling';
 import {
   canUnitEquipItem,
+  CHAMPION_ROSTER,
   computeUnitEquipmentBonuses,
   CONSUMABLE_CATALOG,
+  createChampionUnit,
   getEquipmentById,
   getUnitEffectiveStats,
   INITIAL_CONSUMABLES,
@@ -71,6 +79,7 @@ import type {
   BattleSceneState,
   BoardMode,
   CampaignSaveData,
+  ChampionSkillId,
   ChronoRewindSnapshot,
   CombatForecast,
   ConsumableInventory,
@@ -81,15 +90,19 @@ import type {
   EquipmentSlot,
   GameSnapshot,
   GridCoord,
+  HeroCharacterId,
+  InitiativeQueueItem,
   InspectedUnitDetails,
   MoveAnimation,
+  StageBlueprint,
   TerrainType,
   Unit,
   UpgradeOption,
   ViewportOrientation,
 } from './types';
 
-const CAMPAIGN_STORAGE_KEY = 'tox_brotherhood_campaign_v1';
+const CAMPAIGN_STORAGE_KEY = 'tox_black_knight_campaign_v2';
+const LEGACY_STORAGE_KEY = 'tox_brotherhood_campaign_v1';
 
 export interface TwinCommanderStatus {
   id: string;
@@ -104,6 +117,18 @@ export interface VictoryRewardBanner {
   goldEarned: number;
   rewardItemName: string | null;
   recruitName: string | null;
+  startingIq?: number;
+  peakIq?: number;
+  endingIq?: number;
+  iqDelta?: number;
+  rankLabel?: string;
+  rankAccent?: string;
+  glyph?: string;
+  cleanLethals?: number;
+  advantageStrikes?: number;
+  chronoRewindsUsed?: number;
+  recklessExposures?: number;
+  performanceGrade?: 'S' | 'A' | 'B' | 'C';
 }
 
 interface PendingBattleContext {
@@ -159,6 +184,11 @@ export interface HudSummary {
   iqLastReason: string | null;
   canChronoRewind: boolean;
   chronoUsedThisBattle: boolean;
+  chronoRewindCharges: number;
+  maxChronoRewindCharges: number;
+  activeUnitId: string | null;
+  initiativeQueue: InitiativeQueueItem[];
+  objectiveSummary?: string;
 }
 
 function readSavedCampaign(): CampaignSaveData | null {
@@ -166,16 +196,29 @@ function readSavedCampaign(): CampaignSaveData | null {
     return null;
   }
   try {
+    try {
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
     const raw = window.localStorage.getItem(CAMPAIGN_STORAGE_KEY);
     if (!raw) {
       return null;
     }
     const parsed = JSON.parse(raw) as CampaignSaveData;
+    const hasBlackKnight =
+      Array.isArray(parsed?.roster) &&
+      parsed.roster.some((unit) => unit.heroId === 'black-knight');
     const isValidSave =
       typeof parsed?.stageNumber === 'number' &&
       Array.isArray(parsed?.roster) &&
-      parsed.roster.length > 0;
-    return isValidSave ? parsed : null;
+      parsed.roster.length > 0 &&
+      hasBlackKnight;
+    if (!isValidSave) {
+      window.localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -266,6 +309,10 @@ export class TacticsGameController {
   private recruitedTavernIds: string[] = [];
   private lastVictoryReward: VictoryRewardBanner | null = null;
   private chronoSnapshot: ChronoRewindSnapshot | null = null;
+  private turnQueue: string[] = [];
+  private chronoRewindCharges = 1;
+  private maxChronoRewindCharges = 1;
+  private currentStageBlueprint: StageBlueprint | null = null;
   private onHudChange: (hud: HudSummary) => void;
 
   constructor(onHudChange: (hud: HudSummary) => void) {
@@ -330,12 +377,20 @@ export class TacticsGameController {
       iqState: initialIqState,
       enemySightline: null,
       canChronoRewind: false,
+      chronoRewindCharges: 1,
+      maxChronoRewindCharges: 1,
+      activeUnitId: null,
+      initiativeQueue: [],
+      objectiveType: initialBlueprint.objectiveType ?? 'rout',
+      objectiveSummary: 'Rout All Enemies',
+      defendTurnsRemaining: 5,
       stats: {
         enemiesDefeated: 0,
         stagesCleared: 0,
         turnsElapsed: 0,
       },
     };
+    this.currentStageBlueprint = initialBlueprint;
   }
 
   public getSnapshot(): GameSnapshot {
@@ -401,9 +456,11 @@ export class TacticsGameController {
     const canChronoRewind =
       isInteractiveTurn &&
       this.chronoSnapshot !== null &&
-      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.chronoRewindCharges > 0 &&
       this.snapshot.iqState.current >= 10;
     this.snapshot.canChronoRewind = canChronoRewind;
+    this.snapshot.chronoRewindCharges = this.chronoRewindCharges;
+    this.snapshot.maxChronoRewindCharges = this.maxChronoRewindCharges;
 
     return {
       screen: this.snapshot.screen,
@@ -445,7 +502,12 @@ export class TacticsGameController {
       iqLastDelta: this.snapshot.iqState.lastDelta,
       iqLastReason: this.snapshot.iqState.lastReason,
       canChronoRewind,
-      chronoUsedThisBattle: this.snapshot.iqState.chronoUsedThisBattle,
+      chronoUsedThisBattle: this.chronoRewindCharges <= 0,
+      chronoRewindCharges: this.chronoRewindCharges,
+      maxChronoRewindCharges: this.maxChronoRewindCharges,
+      activeUnitId: this.snapshot.activeUnitId,
+      initiativeQueue: this.snapshot.initiativeQueue,
+      objectiveSummary: this.snapshot.objectiveSummary,
     };
   }
 
@@ -515,6 +577,7 @@ export class TacticsGameController {
       terrainDefense: terrainMeta.defenseBonus,
       terrainEvasion: terrainMeta.evasionBonus,
       move: effectiveStats.move,
+      speed: effectiveStats.speed,
       minRange: unit.minRange,
       maxRange: effectiveStats.maxRange,
       canFly: unit.canFly,
@@ -540,11 +603,22 @@ export class TacticsGameController {
       equipmentAttackBonus: gear.attackBonus,
       equipmentDefenseBonus: gear.defenseBonus,
       equipmentMoveBonus: gear.moveBonus,
+      equipmentSpeedBonus: gear.speedBonus,
       equipmentMaxHpBonus: gear.maxHpBonus,
       equipmentHealBonus: gear.healBonus,
       equipmentRangeBonus: gear.rangeBonus,
       equipmentCritBonus: gear.critBonus,
       canEditEquipment: isPlayerInteractive,
+      heroId: unit.heroId,
+      trenChessGlyph: unit.trenChessGlyph,
+      hasBloodAndVoid: unit.hasBloodAndVoid,
+      shadowBarrierTurns: unit.shadowBarrierTurns,
+      activeSkillId: unit.activeSkillId ?? null,
+      skills: unit.heroId
+        ? (CHAMPION_SKILL_CATALOG[unit.heroId] ?? []).filter(
+            (skill) => skill.unlockedAtLevel <= unit.level,
+          )
+        : [],
     };
   }
 
@@ -700,7 +774,8 @@ export class TacticsGameController {
 
   public toggleUnitDeployment(unitId: string): void {
     const unit = this.campaignRoster.find((item) => item.id === unitId);
-    if (!unit || unit.unitClass === 'sovereign') {
+    const isProtagonist = unit?.heroId === 'black-knight';
+    if (!unit || isProtagonist) {
       tacticalAudio.play('cancel');
       return;
     }
@@ -1056,17 +1131,46 @@ export class TacticsGameController {
   }
 
   private ensureValidDeploymentForChapter(maxDeployCount: number): void {
+    const hasBlackKnight = this.campaignRoster.some(
+      (unit) => unit.heroId === 'black-knight',
+    );
+    if (!hasBlackKnight) {
+      this.campaignRoster = [
+        createChampionUnit(
+          'black-knight',
+          3,
+          7,
+          this.snapshot.effects,
+        ),
+        createChampionUnit(
+          'gaea',
+          2,
+          7,
+          this.snapshot.effects,
+        ),
+        createChampionUnit(
+          'x-keeper',
+          4,
+          7,
+          this.snapshot.effects,
+        ),
+      ];
+      this.deployedUnitIds = this.campaignRoster
+        .slice(0, maxDeployCount)
+        .map((unit) => unit.id);
+      this.persistCampaignCheckpoint();
+      return;
+    }
+
     const validIds = this.deployedUnitIds.filter((id) =>
       this.campaignRoster.some((unit) => unit.id === id),
     );
-    const twinCommanders = this.campaignRoster.filter(
-      (unit) => unit.unitClass === 'sovereign',
+    const blackKnight = this.campaignRoster.find(
+      (unit) => unit.heroId === 'black-knight',
     );
     const nextIds: string[] = [];
-    for (const commander of twinCommanders) {
-      if (!nextIds.includes(commander.id) && nextIds.length < maxDeployCount) {
-        nextIds.push(commander.id);
-      }
+    if (blackKnight && !nextIds.includes(blackKnight.id) && nextIds.length < maxDeployCount) {
+      nextIds.push(blackKnight.id);
     }
     for (const id of validIds) {
       if (!nextIds.includes(id) && nextIds.length < maxDeployCount) {
@@ -1119,57 +1223,21 @@ export class TacticsGameController {
     };
 
     this.campaignRoster = [
-      createUnitFromArchetype(
-        'p-commander-x',
-        'X, The Keeper',
-        'sovereign',
-        'player',
+      createChampionUnit(
+        'black-knight',
         3,
         7,
         this.snapshot.effects,
       ),
-      createUnitFromArchetype(
-        'p-commander-sol',
-        'Sol',
-        'sovereign',
-        'player',
-        4,
-        7,
-        this.snapshot.effects,
-      ),
-      createUnitFromArchetype(
-        'p-gaea',
-        'Gaea',
-        'healer',
-        'player',
+      createChampionUnit(
+        'gaea',
         2,
         7,
         this.snapshot.effects,
       ),
-      createUnitFromArchetype(
-        'p-luna',
-        'Luna',
-        'marksman',
-        'player',
-        5,
-        7,
-        this.snapshot.effects,
-      ),
-      createUnitFromArchetype(
-        'p-night',
-        'Night',
-        'striker',
-        'player',
-        5,
-        6,
-        this.snapshot.effects,
-      ),
-      createUnitFromArchetype(
-        'p-mender',
-        'Mender',
-        'cleric',
-        'player',
-        1,
+      createChampionUnit(
+        'x-keeper',
+        4,
         7,
         this.snapshot.effects,
       ),
@@ -1419,8 +1487,15 @@ export class TacticsGameController {
       lastReason: null,
       history: [],
     };
+    this.turnQueue = [];
+    this.chronoRewindCharges = 1;
+    this.maxChronoRewindCharges = 1;
     this.chronoSnapshot = null;
     this.snapshot.canChronoRewind = false;
+    this.snapshot.chronoRewindCharges = 1;
+    this.snapshot.maxChronoRewindCharges = 1;
+    this.snapshot.activeUnitId = null;
+    this.snapshot.initiativeQueue = [];
     this.snapshot.deploymentPhase = 'CHI_SWAP';
     this.snapshot.deploymentSpawns = deployedPlayers.map((unit) => ({
       col: unit.col,
@@ -1431,6 +1506,17 @@ export class TacticsGameController {
       doctrine,
       this.snapshot.iqState.current,
     );
+    this.currentStageBlueprint = blueprint;
+    this.snapshot.objectiveType = blueprint.objectiveType ?? 'rout';
+    this.snapshot.defendTurnsRemaining = blueprint.defendTurns ?? 5;
+    this.snapshot.objectiveSummary =
+      blueprint.objectiveType === 'defeatBoss'
+        ? 'Defeat Boss'
+        : blueprint.objectiveType === 'defend'
+          ? `Defend for ${blueprint.defendTurns ?? 5} Turns`
+          : blueprint.objectiveType === 'escape'
+            ? 'Breach Gate (Reach Row 0)'
+            : 'Rout All Enemies';
     this.snapshot.stageCallout = blueprint.calloutText;
     this.snapshot.floatingCallouts = [];
     this.snapshot.projectiles = [];
@@ -1462,6 +1548,153 @@ export class TacticsGameController {
     );
   }
 
+  private sortUnitsBySpeed(units: Unit[]): Unit[] {
+    return [...units].sort((a, b) => {
+      const spdA = getUnitEffectiveStats(a, this.snapshot.effects).speed;
+      const spdB = getUnitEffectiveStats(b, this.snapshot.effects).speed;
+      if (spdB !== spdA) {
+        return spdB - spdA;
+      }
+      if (a.faction === 'player' && b.faction !== 'player') {
+        return -1;
+      }
+      if (b.faction === 'player' && a.faction !== 'player') {
+        return 1;
+      }
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  private rebuildInitiativeQueue(): void {
+    const aliveUnits = this.snapshot.units.filter((u) => u.hp > 0);
+    if (aliveUnits.length === 0) {
+      this.snapshot.initiativeQueue = [];
+      return;
+    }
+
+    this.turnQueue = this.turnQueue.filter((id) =>
+      aliveUnits.some((u) => u.id === id),
+    );
+
+    const projectedIds: string[] = [...this.turnQueue];
+    const sortedAlive = this.sortUnitsBySpeed(aliveUnits).map((u) => u.id);
+
+    while (projectedIds.length < 8 && sortedAlive.length > 0) {
+      for (const id of sortedAlive) {
+        projectedIds.push(id);
+        if (projectedIds.length >= 8) {
+          break;
+        }
+      }
+    }
+
+    const unitMap = new Map(aliveUnits.map((u) => [u.id, u]));
+    this.snapshot.initiativeQueue = projectedIds.slice(0, 8).map((id, index) => {
+      const u = unitMap.get(id);
+      if (!u) {
+        return {
+          unitId: id,
+          name: 'Unit',
+          unitClass: 'vanguard',
+          faction: 'player',
+          speed: 5,
+          currentHp: 1,
+          maxHp: 1,
+          isActive: index === 0,
+        };
+      }
+      const effectiveStats = getUnitEffectiveStats(u, this.snapshot.effects);
+      return {
+        unitId: u.id,
+        name: u.name,
+        unitClass: u.unitClass,
+        faction: u.faction,
+        speed: effectiveStats.speed,
+        currentHp: Math.max(0, u.hp),
+        maxHp: u.maxHp,
+        isActive: index === 0,
+      };
+    });
+  }
+
+  public advanceTurnQueue(): void {
+    if (this.snapshot.screen !== 'playing') {
+      return;
+    }
+    if (this.checkBattleOutcome()) {
+      return;
+    }
+
+    const aliveUnits = this.snapshot.units.filter((u) => u.hp > 0);
+    this.turnQueue = this.turnQueue.filter((id) =>
+      aliveUnits.some((u) => u.id === id),
+    );
+
+    if (this.turnQueue.length === 0) {
+      this.snapshot.turnNumber += 1;
+      this.snapshot.stats.turnsElapsed += 1;
+      this.applyFortressHealingForFaction('player');
+      this.applyFortressHealingForFaction('enemy');
+      const sortedAlive = this.sortUnitsBySpeed(aliveUnits);
+      this.turnQueue = sortedAlive.map((u) => u.id);
+    }
+
+    const nextUnitId = this.turnQueue[0];
+    const activeUnit = this.snapshot.units.find(
+      (u) => u.id === nextUnitId && u.hp > 0,
+    );
+
+    if (!activeUnit) {
+      this.turnQueue.shift();
+      this.advanceTurnQueue();
+      return;
+    }
+
+    this.snapshot.activeUnitId = activeUnit.id;
+    this.rebuildInitiativeQueue();
+
+    if (activeUnit.faction === 'player') {
+      this.snapshot.phase = 'player';
+      this.isBusy = false;
+      this.captureChronoSnapshot();
+      activeUnit.hasMoved = false;
+      activeUnit.hasActed = false;
+      activeUnit.tilesMovedThisTurn = 0;
+      this.selectPlayerUnit(activeUnit);
+      tacticalAudio.play('turnPlayer');
+      this.snapshot.phaseBanner = {
+        title: `${activeUnit.name.toUpperCase()}'S TURN`,
+        subtitle: `Round ${this.snapshot.turnNumber} · Speed ${activeUnit.speed} · Tactical Initiative`,
+        accentColor: PALETTE.playerPrimary,
+        age: 0,
+        duration: 0.95,
+      };
+      this.emitHud();
+    } else {
+      this.snapshot.phase = 'enemy';
+      this.isBusy = true;
+      activeUnit.hasMoved = false;
+      activeUnit.hasActed = false;
+      activeUnit.tilesMovedThisTurn = 0;
+      this.snapshot.selectedUnitId = null;
+      this.inspectedUnitId = null;
+      this.snapshot.reachableTiles = new Map();
+      this.snapshot.threatenedTileKeys = new Set();
+      this.snapshot.attackableEnemyIds = new Set();
+      this.snapshot.healableAllyIds = new Set();
+      tacticalAudio.play('turnEnemy');
+      this.snapshot.phaseBanner = {
+        title: `${activeUnit.name.toUpperCase()}'S TURN`,
+        subtitle: `Round ${this.snapshot.turnNumber} · Speed ${activeUnit.speed} · Hostile Initiative`,
+        accentColor: PALETTE.enemyPrimary,
+        age: 0,
+        duration: 0.85,
+      };
+      this.emitHud();
+      this.schedule(() => this.executeSingleEnemyTurn(activeUnit), 500);
+    }
+  }
+
   public confirmChiDeployment(): void {
     if (
       this.snapshot.screen !== 'playing' ||
@@ -1475,14 +1708,20 @@ export class TacticsGameController {
     this.snapshot.selectedUnitId = null;
     this.inspectedUnitId = null;
     tacticalAudio.play('turnPlayer');
+
+    const aliveUnits = this.snapshot.units.filter((u) => u.hp > 0);
+    const sortedAlive = this.sortUnitsBySpeed(aliveUnits);
+    this.turnQueue = sortedAlive.map((u) => u.id);
+    this.rebuildInitiativeQueue();
+
     this.snapshot.phaseBanner = {
-      title: 'TURN 1 · PLAYER PHASE',
-      subtitle: `${this.snapshot.stageTitle} · ${this.snapshot.adaptationNote}`,
+      title: 'BATTLE ENGAGED',
+      subtitle: `${this.snapshot.stageTitle} · Speed Initiative Order`,
       accentColor: PALETTE.playerPrimary,
       age: 0,
-      duration: 1.35,
+      duration: 1.2,
     };
-    this.emitHud();
+    this.advanceTurnQueue();
   }
 
   private captureChronoSnapshot(): void {
@@ -1490,6 +1729,9 @@ export class TacticsGameController {
       units: this.snapshot.units.map((unit) => ({...unit})),
       turnNumber: this.snapshot.turnNumber,
       phase: this.snapshot.phase,
+      turnQueue: [...this.turnQueue],
+      activeUnitId: this.snapshot.activeUnitId,
+      chronoRewindCharges: this.chronoRewindCharges,
       playstyle: {...this.snapshot.playstyle},
       consumables: {...this.consumables},
       stats: {...this.snapshot.stats},
@@ -1498,7 +1740,7 @@ export class TacticsGameController {
       iqHistory: this.snapshot.iqState.history.map((entry) => ({...entry})),
     };
     this.snapshot.canChronoRewind =
-      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.chronoRewindCharges > 0 &&
       this.snapshot.iqState.current >= 10;
   }
 
@@ -1510,7 +1752,7 @@ export class TacticsGameController {
       !this.isBusy &&
       this.snapshot.dialogueScene === null &&
       this.chronoSnapshot !== null &&
-      !this.snapshot.iqState.chronoUsedThisBattle &&
+      this.chronoRewindCharges > 0 &&
       this.snapshot.iqState.current >= 10;
     if (!canRewind || !this.chronoSnapshot) {
       tacticalAudio.play('cancel');
@@ -1532,6 +1774,10 @@ export class TacticsGameController {
     }));
     this.snapshot.turnNumber = snap.turnNumber;
     this.snapshot.phase = 'player';
+    this.turnQueue = [...snap.turnQueue];
+    this.snapshot.activeUnitId = snap.activeUnitId;
+    this.chronoRewindCharges = Math.max(0, this.chronoRewindCharges - 1);
+    this.snapshot.chronoRewindCharges = this.chronoRewindCharges;
     this.snapshot.playstyle = {...snap.playstyle};
     this.consumables = {...snap.consumables};
     this.snapshot.stats = {...snap.stats};
@@ -1550,7 +1796,7 @@ export class TacticsGameController {
       current: snap.iqCurrent,
       peak: snap.iqPeak,
       history: snap.iqHistory,
-      chronoUsedThisBattle: true,
+      chronoUsedThisBattle: this.chronoRewindCharges <= 0,
     };
     this.snapshot.iqState = recordIqDelta(
       restoredIqState,
@@ -1564,23 +1810,25 @@ export class TacticsGameController {
       this.snapshot.iqState.current,
     );
 
-    const anchorUnit = this.snapshot.units.find(
-      (unit) => unit.faction === 'player' && unit.hp > 0,
+    const activeUnit = this.snapshot.units.find(
+      (unit) => unit.id === this.snapshot.activeUnitId && unit.hp > 0,
     );
-    if (anchorUnit) {
-      this.spawnShockwave(anchorUnit.col, anchorUnit.row, PALETTE.healColor);
+    if (activeUnit) {
+      this.spawnShockwave(activeUnit.col, activeUnit.row, PALETTE.healColor);
       this.spawnFloatingCallout(
-        anchorUnit.col,
-        anchorUnit.row,
+        activeUnit.col,
+        activeUnit.row,
         '-10 IQ · CHRONO',
         PALETTE.healColor,
       );
+      this.selectPlayerUnit(activeUnit);
     }
 
+    this.rebuildInitiativeQueue();
     tacticalAudio.play('chronoRewind');
     this.snapshot.phaseBanner = {
       title: 'CHRONO REWIND',
-      subtitle: '-10 IQ · Timeline restored before your last action',
+      subtitle: `-10 IQ · Timeline restored (${this.chronoRewindCharges} charges remaining)`,
       accentColor: PALETTE.healColor,
       age: 0,
       duration: 1.4,
@@ -2291,6 +2539,153 @@ export class TacticsGameController {
     this.finalizePlayerUnitTurn(selectedUnit, false, isHealingItem);
   }
 
+  public triggerChampionSkill(skillId: ChampionSkillId): void {
+    const selectedUnit = this.getSelectedUnit();
+    const canUse =
+      this.snapshot.screen === 'playing' &&
+      this.snapshot.phase === 'player' &&
+      !this.isBusy &&
+      this.snapshot.dialogueScene === null &&
+      selectedUnit !== undefined &&
+      selectedUnit.faction === 'player' &&
+      !selectedUnit.hasActed;
+    if (!canUse || !selectedUnit) {
+      return;
+    }
+
+    const availableSkills = selectedUnit.heroId
+      ? CHAMPION_SKILL_CATALOG[selectedUnit.heroId] ?? []
+      : [];
+    const skillSpec = availableSkills.find(
+      (skill) => skill.id === skillId && skill.unlockedAtLevel <= selectedUnit.level,
+    );
+    if (!skillSpec) {
+      return;
+    }
+
+    if (skillId === 'abyssalStrike') {
+      if (selectedUnit.activeSkillId === 'abyssalStrike') {
+        selectedUnit.activeSkillId = null;
+        tacticalAudio.play('cancel');
+      } else {
+        selectedUnit.activeSkillId = 'abyssalStrike';
+        tacticalAudio.play('select');
+        this.spawnFloatingCallout(
+          selectedUnit.col,
+          selectedUnit.row,
+          'ABYSSAL STRIKE (+4 ATK)',
+          PALETTE.accentVoid,
+        );
+      }
+      this.emitHud();
+      return;
+    }
+
+    if (skillId === 'soulDrain') {
+      if (selectedUnit.activeSkillId === 'soulDrain') {
+        selectedUnit.activeSkillId = null;
+        tacticalAudio.play('cancel');
+      } else {
+        selectedUnit.activeSkillId = 'soulDrain';
+        tacticalAudio.play('select');
+        this.spawnFloatingCallout(
+          selectedUnit.col,
+          selectedUnit.row,
+          'SOUL DRAIN (50% DRAIN)',
+          PALETTE.accentVoid,
+        );
+      }
+      this.emitHud();
+      return;
+    }
+
+    if (skillId === 'shadowBarrier') {
+      this.captureChronoSnapshot();
+      selectedUnit.shadowBarrierTurns = 2;
+      selectedUnit.activeSkillId = null;
+      tacticalAudio.play('shieldBlock');
+      this.spawnFloatingCallout(
+        selectedUnit.col,
+        selectedUnit.row,
+        'SHADOW BARRIER (TAUNT)',
+        PALETTE.accentVoid,
+      );
+      this.spawnShockwave(selectedUnit.col, selectedUnit.row, PALETTE.accentVoid);
+      this.spawnParticleBurst(
+        selectedUnit.col,
+        selectedUnit.row,
+        PALETTE.accentVoid,
+        18,
+      );
+      this.finalizePlayerUnitTurn(selectedUnit, false, false);
+      return;
+    }
+
+    if (skillId === 'voidNova') {
+      this.captureChronoSnapshot();
+      const hpCost = Math.max(1, Math.floor(selectedUnit.hp * 0.15));
+      selectedUnit.hp = Math.max(1, selectedUnit.hp - hpCost);
+      tacticalAudio.play('heavyHit');
+      tacticalAudio.play('criticalSlash');
+      this.spawnShockwave(selectedUnit.col, selectedUnit.row, PALETTE.accentVoid);
+      this.spawnParticleBurst(
+        selectedUnit.col,
+        selectedUnit.row,
+        PALETTE.accentVoid,
+        28,
+      );
+      this.spawnFloatingCallout(
+        selectedUnit.col,
+        selectedUnit.row,
+        `VOID NOVA (-${hpCost} HP)`,
+        PALETTE.accentVoid,
+      );
+
+      const enemiesInNova = this.snapshot.units.filter(
+        (candidate) =>
+          candidate.faction === 'enemy' &&
+          candidate.hp > 0 &&
+          Math.abs(candidate.col - selectedUnit.col) <= 1 &&
+          Math.abs(candidate.row - selectedUnit.row) <= 1,
+      );
+
+      const novaDamage = 8 + getBloodAndVoidBonus(selectedUnit);
+      let defeatedCount = 0;
+      for (const enemy of enemiesInNova) {
+        enemy.hp = Math.max(0, enemy.hp - novaDamage);
+        this.spawnFloatingCallout(
+          enemy.col,
+          enemy.row,
+          `-${novaDamage} VOID`,
+          PALETTE.accentVoid,
+        );
+        this.spawnShockwave(enemy.col, enemy.row, PALETTE.enemyPrimary);
+        if (enemy.hp === 0) {
+          defeatedCount++;
+          this.snapshot.stats.enemiesDefeated += 1;
+        }
+      }
+
+      const totalXp = Math.min(100, enemiesInNova.length * 15 + defeatedCount * 25);
+      if (totalXp > 0) {
+        const xpResult = applyCombatXpToUnit(selectedUnit, totalXp, defeatedCount > 0);
+        applySharedSquadXp(this.campaignRoster, 'black-knight', Math.round(totalXp * 0.4));
+        if (xpResult.levelUps.length > 0) {
+          tacticalAudio.play('levelUp');
+          this.spawnFloatingCallout(
+            selectedUnit.col,
+            selectedUnit.row - 0.65,
+            `LEVEL ${selectedUnit.level}!`,
+            PALETTE.auraColor,
+          );
+        }
+      }
+
+      this.finalizePlayerUnitTurn(selectedUnit, true, false);
+      return;
+    }
+  }
+
   private recordPlayerActionTelemetry(
     unit: Unit,
     attacked: boolean,
@@ -2337,6 +2732,10 @@ export class TacticsGameController {
   ): void {
     unit.hasMoved = true;
     unit.hasActed = true;
+    if (unit.shadowBarrierTurns && unit.shadowBarrierTurns > 0) {
+      unit.shadowBarrierTurns -= 1;
+    }
+    unit.activeSkillId = undefined;
     this.snapshot.pendingMove = null;
     this.snapshot.selectedUnitId = null;
     this.snapshot.reachableTiles = new Map();
@@ -2358,21 +2757,17 @@ export class TacticsGameController {
       }
     }
 
+    if (this.turnQueue.length > 0 && this.turnQueue[0] === unit.id) {
+      this.turnQueue.shift();
+    }
+
     if (this.checkBattleOutcome()) {
       return;
     }
 
-    const hasRemainingReadyAllies = this.snapshot.units.some(
-      (candidate) =>
-        candidate.faction === 'player' &&
-        candidate.hp > 0 &&
-        !candidate.hasActed,
-    );
-
+    this.rebuildInitiativeQueue();
     this.emitHud();
-    if (!hasRemainingReadyAllies) {
-      this.schedule(() => this.beginEnemyPhase(), 320);
-    }
+    this.schedule(() => this.advanceTurnQueue(), 280);
   }
 
   public endPlayerTurn(): void {
@@ -2386,23 +2781,12 @@ export class TacticsGameController {
       return;
     }
 
-    this.captureChronoSnapshot();
-    for (const unit of this.snapshot.units) {
-      if (unit.faction === 'player' && unit.hp > 0 && !unit.hasActed) {
-        this.recordPlayerActionTelemetry(unit, false, false);
-        unit.hasActed = true;
-        unit.hasMoved = true;
-      }
+    const activeUnit = this.snapshot.units.find(
+      (u) => u.id === this.snapshot.activeUnitId && u.hp > 0,
+    );
+    if (activeUnit && activeUnit.faction === 'player' && !activeUnit.hasActed) {
+      this.waitSelectedUnit();
     }
-
-    this.snapshot.pendingMove = null;
-    this.snapshot.selectedUnitId = null;
-    this.inspectedUnitId = null;
-    this.snapshot.reachableTiles = new Map();
-    this.snapshot.threatenedTileKeys = new Set();
-    this.snapshot.attackableEnemyIds = new Set();
-    this.snapshot.healableAllyIds = new Set();
-    this.beginEnemyPhase();
   }
 
   private applyFortressHealingForFaction(faction: 'player' | 'enemy'): void {
@@ -2436,56 +2820,16 @@ export class TacticsGameController {
     }
   }
 
-  private beginEnemyPhase(): void {
+  private executeSingleEnemyTurn(enemy: Unit): void {
     if (this.snapshot.screen !== 'playing') {
       return;
     }
 
-    this.snapshot.phase = 'enemy';
-    this.snapshot.activeEnemyAction = null;
-    this.isBusy = true;
-    for (const unit of this.snapshot.units) {
-      if (unit.faction === 'enemy' && unit.hp > 0) {
-        unit.hasMoved = false;
-        unit.hasActed = false;
-        unit.tilesMovedThisTurn = 0;
+    if (enemy.hp <= 0) {
+      if (this.turnQueue.length > 0 && this.turnQueue[0] === enemy.id) {
+        this.turnQueue.shift();
       }
-    }
-
-    tacticalAudio.play('turnEnemy');
-    this.applyFortressHealingForFaction('enemy');
-    this.snapshot.phaseBanner = {
-      title: 'ENEMY PHASE',
-      subtitle: `Turn ${this.snapshot.turnNumber} · ${this.snapshot.adaptationNote}`,
-      accentColor: PALETTE.enemyPrimary,
-      age: 0,
-      duration: 1.05,
-    };
-    this.emitHud();
-
-    const activeEnemies = this.snapshot.units
-      .filter((unit) => unit.faction === 'enemy' && unit.hp > 0)
-      .map((unit) => unit.id);
-
-    this.schedule(() => this.processNextEnemyUnit(activeEnemies, 0), 750);
-  }
-
-  private processNextEnemyUnit(enemyIds: string[], index: number): void {
-    if (this.snapshot.screen !== 'playing') {
-      return;
-    }
-
-    if (index >= enemyIds.length) {
-      this.snapshot.activeEnemyAction = null;
-      this.beginPlayerPhase();
-      return;
-    }
-
-    const enemy = this.snapshot.units.find(
-      (unit) => unit.id === enemyIds[index] && unit.hp > 0,
-    );
-    if (!enemy) {
-      this.processNextEnemyUnit(enemyIds, index + 1);
+      this.advanceTurnQueue();
       return;
     }
 
@@ -2534,6 +2878,17 @@ export class TacticsGameController {
         : `${enemy.name} repositions across the battlefield.`;
     }
 
+    const onEnemyTurnFinished = () => {
+      enemy.hasActed = true;
+      this.snapshot.activeEnemyAction = null;
+      if (this.turnQueue.length > 0 && this.turnQueue[0] === enemy.id) {
+        this.turnQueue.shift();
+      }
+      if (!this.checkBattleOutcome()) {
+        this.schedule(() => this.advanceTurnQueue(), 300);
+      }
+    };
+
     const executeAfterMove = () => {
       enemy.col = decision.destination.col;
       enemy.row = decision.destination.row;
@@ -2568,14 +2923,7 @@ export class TacticsGameController {
         this.spawnShockwave(target.col, target.row, PALETTE.healColor);
 
         this.schedule(() => {
-          this.executeHealSequence(enemy, target, () => {
-            enemy.hasActed = true;
-            this.snapshot.activeEnemyAction = null;
-            this.schedule(
-              () => this.processNextEnemyUnit(enemyIds, index + 1),
-              300,
-            );
-          });
+          this.executeHealSequence(enemy, target, onEnemyTurnFinished);
         }, 620);
       } else if (decision.actionType === 'attack' && target) {
         this.snapshot.activeEnemyAction = {
@@ -2597,24 +2945,10 @@ export class TacticsGameController {
         this.spawnShockwave(target.col, target.row, PALETTE.auraColor);
 
         this.schedule(() => {
-          this.executeCombatSequence(enemy, target, () => {
-            enemy.hasActed = true;
-            this.snapshot.activeEnemyAction = null;
-            if (this.checkBattleOutcome()) {
-              return;
-            }
-            this.schedule(
-              () => this.processNextEnemyUnit(enemyIds, index + 1),
-              340,
-            );
-          });
+          this.executeCombatSequence(enemy, target, onEnemyTurnFinished);
         }, 740);
       } else {
-        enemy.hasActed = true;
-        this.schedule(() => {
-          this.snapshot.activeEnemyAction = null;
-          this.processNextEnemyUnit(enemyIds, index + 1);
-        }, 260);
+        this.schedule(onEnemyTurnFinished, 260);
       }
     };
 
@@ -2630,39 +2964,6 @@ export class TacticsGameController {
     } else {
       executeAfterMove();
     }
-  }
-
-  private beginPlayerPhase(): void {
-    if (this.snapshot.screen !== 'playing') {
-      return;
-    }
-
-    this.snapshot.phase = 'player';
-    this.snapshot.activeEnemyAction = null;
-    this.snapshot.turnNumber += 1;
-    this.snapshot.stats.turnsElapsed += 1;
-    this.snapshot.stageCallout =
-      'Select a blue unit to move, attack, or inspect.';
-    this.isBusy = false;
-
-    for (const unit of this.snapshot.units) {
-      if (unit.faction === 'player' && unit.hp > 0) {
-        unit.hasMoved = false;
-        unit.hasActed = false;
-        unit.tilesMovedThisTurn = 0;
-      }
-    }
-
-    tacticalAudio.play('turnPlayer');
-    this.applyFortressHealingForFaction('player');
-    this.snapshot.phaseBanner = {
-      title: 'PLAYER PHASE',
-      subtitle: `Turn ${this.snapshot.turnNumber} · ${this.snapshot.stageTitle}`,
-      accentColor: PALETTE.playerPrimary,
-      age: 0,
-      duration: 1.0,
-    };
-    this.emitHud();
   }
 
   private resolveBattleTerrain(attacker: Unit, defender: Unit): TerrainType {
@@ -3089,6 +3390,42 @@ export class TacticsGameController {
     defenderSide.hitFlash = 0.22;
     defenderSide.isDefeated = ctx.defender.hp === 0;
 
+    if (ctx.attacker.activeSkillId === 'abyssalStrike') {
+      const hpCost = Math.max(1, Math.floor(ctx.attacker.hp * 0.1));
+      ctx.attacker.hp = Math.max(1, ctx.attacker.hp - hpCost);
+      const attackerSide =
+        ctx.attacker.faction === 'player' ? scene.playerSide : scene.enemySide;
+      attackerSide.targetHp = ctx.attacker.hp;
+      if (!silent) {
+        this.spawnFloatingCallout(
+          ctx.attacker.col,
+          ctx.attacker.row,
+          `-${hpCost} HP`,
+          PALETTE.accentVoid,
+        );
+      }
+      ctx.attacker.activeSkillId = undefined;
+    } else if (ctx.attacker.activeSkillId === 'soulDrain') {
+      const healAmount = Math.max(1, Math.floor(scene.primaryDamage * 0.5));
+      const missing = ctx.attacker.maxHp - ctx.attacker.hp;
+      const restored = Math.min(missing, healAmount);
+      if (restored > 0) {
+        ctx.attacker.hp += restored;
+        const attackerSide =
+          ctx.attacker.faction === 'player' ? scene.playerSide : scene.enemySide;
+        attackerSide.targetHp = ctx.attacker.hp;
+        if (!silent) {
+          this.spawnFloatingCallout(
+            ctx.attacker.col,
+            ctx.attacker.row,
+            `+${restored} HP`,
+            PALETTE.healColor,
+          );
+        }
+      }
+      ctx.attacker.activeSkillId = undefined;
+    }
+
     if (ctx.defender.hp === 0 && ctx.defender.faction === 'enemy') {
       this.snapshot.stats.enemiesDefeated += 1;
     }
@@ -3259,6 +3596,11 @@ export class TacticsGameController {
         return;
       }
       const result = applySupportXpToUnit(ctx.attacker, scene.healAmount);
+      applySharedSquadXp(
+        this.campaignRoster,
+        'black-knight',
+        Math.round(result.xpGained * 0.4),
+      );
       this.presentXpResultInScene(scene, ctx.attacker, result, silent);
       return;
     }
@@ -3279,6 +3621,11 @@ export class TacticsGameController {
       playerUnit,
       damageByPlayer,
       enemyWasKilled,
+    );
+    applySharedSquadXp(
+      this.campaignRoster,
+      'black-knight',
+      Math.round(result.xpGained * 0.4),
     );
     this.presentXpResultInScene(scene, playerUnit, result, silent);
   }
@@ -3729,14 +4076,17 @@ export class TacticsGameController {
   }
 
   private checkBattleOutcome(): boolean {
+    const blackKnight = this.snapshot.units.find(
+      (unit) => unit.faction === 'player' && unit.heroId === 'black-knight',
+    );
     const playerCommanders = this.snapshot.units.filter(
       (unit) => unit.faction === 'player' && unit.unitClass === 'sovereign',
     );
-    const brotherhoodPactBroken =
-      playerCommanders.length === 0 ||
-      playerCommanders.some((commander) => commander.hp <= 0);
+    const isPlayerDefeated =
+      (blackKnight !== undefined && blackKnight.hp <= 0) ||
+      (playerCommanders.length > 0 && playerCommanders.every((c) => c.hp <= 0));
 
-    if (brotherhoodPactBroken) {
+    if (isPlayerDefeated) {
       this.clearScheduledTimeouts();
       this.syncDeployedRosterProgress();
       this.persistCampaignCheckpoint();
@@ -3757,7 +4107,25 @@ export class TacticsGameController {
       (unit) => unit.faction === 'enemy' && unit.hp > 0,
     );
 
-    const stageWon = !enemySovereignAlive || !anyEnemyAlive;
+    const objective = this.snapshot.objectiveType ?? 'rout';
+    let stageWon = false;
+
+    if (objective === 'rout') {
+      stageWon = !anyEnemyAlive;
+    } else if (objective === 'defeatBoss') {
+      stageWon = !enemySovereignAlive;
+    } else if (objective === 'defend') {
+      const targetTurns = this.currentStageBlueprint?.defendTurns ?? 5;
+      stageWon = this.snapshot.turnNumber >= targetTurns;
+    } else if (objective === 'escape') {
+      const escapeRow = this.currentStageBlueprint?.escapeRow ?? 0;
+      stageWon =
+        blackKnight !== undefined &&
+        blackKnight.row <= escapeRow &&
+        blackKnight.hp > 0;
+    } else {
+      stageWon = !enemySovereignAlive || !anyEnemyAlive;
+    }
     if (stageWon) {
       this.clearScheduledTimeouts();
       this.isBusy = false;
@@ -3792,19 +4160,25 @@ export class TacticsGameController {
           (unit) => unit.id === chapter.recruitReward?.id,
         );
         if (!alreadyInRoster) {
-          const newHero = createUnitFromArchetype(
-            chapter.recruitReward.id,
-            chapter.recruitReward.name,
-            chapter.recruitReward.unitClass,
-            'player',
-            0,
-            0,
-            this.snapshot.effects,
-          );
+          const candidateHeroId = chapter.recruitReward.id.replace('p-', '') as HeroCharacterId;
+          const isChampion = candidateHeroId in CHAMPION_ROSTER;
+          const newHero = isChampion
+            ? createChampionUnit(candidateHeroId, 0, 0, this.snapshot.effects)
+            : createUnitFromArchetype(
+                chapter.recruitReward.id,
+                chapter.recruitReward.name,
+                chapter.recruitReward.unitClass,
+                'player',
+                0,
+                0,
+                this.snapshot.effects,
+              );
           this.campaignRoster = [...this.campaignRoster, newHero];
           recruitName = newHero.name;
         }
       }
+
+      applySharedSquadXp(this.campaignRoster, 'black-knight', 35);
 
       const nextStoryChapter = CAMPAIGN_CHAPTERS.find(
         (candidate) =>
@@ -3819,11 +4193,38 @@ export class TacticsGameController {
         this.ensureValidDeploymentForChapter(chapter.maxDeployCount);
       }
 
+      const history = this.snapshot.iqState.history;
+      const cleanLethals = history.filter((e) => e.reason === 'Clean Lethal').length;
+      const advantageStrikes = history.filter((e) => e.delta === 2).length;
+      const chronoRewindsUsed = history.filter((e) => e.delta <= -10).length;
+      const recklessExposures = history.filter((e) => e.reason === 'Reckless Exposure').length;
+      const startingIq = 100;
+      const endingIq = this.snapshot.iqState.current;
+      const peakIq = this.snapshot.iqState.peak;
+      const iqDelta = endingIq - startingIq;
+      const tier = getIqRankTier(endingIq);
+      const glyph =
+        endingIq >= 150 ? '♔' : endingIq >= 130 ? '♖' : endingIq >= 115 ? '♘' : '♗';
+      const performanceGrade: 'S' | 'A' | 'B' | 'C' =
+        endingIq >= 140 ? 'S' : endingIq >= 120 ? 'A' : endingIq >= 100 ? 'B' : 'C';
+
       this.lastVictoryReward = {
         chapterTitle: `${chapter.chapterLabel}: ${chapter.title}`,
         goldEarned: chapter.goldReward,
         rewardItemName,
         recruitName,
+        startingIq,
+        peakIq,
+        endingIq,
+        iqDelta,
+        rankLabel: tier.label,
+        rankAccent: tier.accentHex,
+        glyph,
+        cleanLethals,
+        advantageStrikes,
+        chronoRewindsUsed,
+        recklessExposures,
+        performanceGrade,
       };
       this.persistCampaignCheckpoint();
 

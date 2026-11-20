@@ -16,7 +16,7 @@ import {
 import {TacticalCtaButton} from '@/components/atoms/TacticalCtaButton';
 import type {HudSummary} from '@/lib/tactics/gameController';
 import {CONSUMABLE_CATALOG} from '@/lib/tactics/rpgCatalog';
-import type {ConsumableType} from '@/lib/tactics/types';
+import type {ChampionSkillId, ConsumableType} from '@/lib/tactics/types';
 
 interface TacticalActionDockProps {
   hud: HudSummary;
@@ -27,6 +27,7 @@ interface TacticalActionDockProps {
   onUseConsumable: (consumableId: ConsumableType) => void;
   onConfirmChiDeployment: () => void;
   onChronoRewind: () => void;
+  onTriggerChampionSkill?: (skillId: ChampionSkillId) => void;
 }
 
 export function TacticalActionDock({
@@ -38,6 +39,7 @@ export function TacticalActionDock({
   onUseConsumable,
   onConfirmChiDeployment,
   onChronoRewind,
+  onTriggerChampionSkill,
 }: TacticalActionDockProps) {
   const [isSatchelOpen, setIsSatchelOpen] = useState(false);
 
@@ -68,7 +70,7 @@ export function TacticalActionDock({
             className="w-full sm:w-auto min-h-[46px] rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-[0.98] text-slate-950 font-bold text-sm px-5 py-2.5 inline-flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Play className="w-4 h-4 fill-slate-950" />
-            <span>Begin Turn 1</span>
+            <span>Begin Battle</span>
             <kbd className="hidden sm:inline-flex items-center justify-center rounded-md border border-slate-950/20 bg-slate-950/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase leading-none text-slate-950/85">
               Space
             </kbd>
@@ -163,6 +165,76 @@ export function TacticalActionDock({
         </div>
       )}
 
+      {hud.inspectedUnit?.canCommand &&
+        (hud.inspectedUnit.skills?.length ?? 0) > 0 && (
+          <div className="w-full max-w-[820px] mx-auto mb-2 rounded-2xl bg-slate-950/95 border border-purple-500/40 p-2 shadow-lg">
+            <div className="flex items-center justify-between gap-2 mb-1.5 px-1">
+              <div className="flex items-center gap-1.5 text-xs text-purple-300 font-bold uppercase tracking-wider">
+                <span className="font-serif text-sm">
+                  {hud.inspectedUnit.trenChessGlyph ?? '♔'}
+                </span>
+                <span>{hud.inspectedUnit.name} · Champion Tactics</span>
+              </div>
+              {hud.inspectedUnit.hasBloodAndVoid && (
+                <div className="text-[11px] font-mono text-amber-300 font-semibold">
+                  Blood & Void: +
+                  {Math.floor(
+                    (1 -
+                      hud.inspectedUnit.hp /
+                        Math.max(1, hud.inspectedUnit.maxHp)) *
+                      6,
+                  )}{' '}
+                  ATK
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {hud.inspectedUnit.skills?.map((skill) => {
+                const isActive = hud.inspectedUnit?.activeSkillId === skill.id;
+                const isBarrierActive =
+                  skill.id === 'shadowBarrier' &&
+                  (hud.inspectedUnit?.shadowBarrierTurns ?? 0) > 0;
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    onClick={() => onTriggerChampionSkill?.(skill.id)}
+                    className={`rounded-xl px-2 py-1.5 text-left transition-all border cursor-pointer ${
+                      isActive || isBarrierActive
+                        ? 'bg-purple-950/90 border-purple-400 text-purple-100 shadow-md shadow-purple-900/40'
+                        : 'bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200'
+                    }`}
+                    title={skill.description}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-bold truncate">
+                        {skill.name}
+                      </span>
+                      {isActive && (
+                        <span className="text-[10px] font-mono px-1 rounded bg-purple-500/30 text-purple-200">
+                          ON
+                        </span>
+                      )}
+                      {isBarrierActive && (
+                        <span className="text-[10px] font-mono px-1 rounded bg-amber-500/30 text-amber-200">
+                          {hud.inspectedUnit?.shadowBarrierTurns}T
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                      {skill.hpCostPercent > 0
+                        ? `Cost ${skill.hpCostPercent}% HP`
+                        : skill.targetType === 'self'
+                          ? 'Instant Self'
+                          : 'On Attack'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
       <div className="w-full max-w-[820px] mx-auto grid grid-cols-5 gap-1.5 sm:gap-2.5">
         <TacticalCtaButton
           label="Undo"
@@ -174,16 +246,22 @@ export function TacticalActionDock({
           title="Free move undo before committing an action (Z)"
         />
         <TacticalCtaButton
-          label={hud.chronoUsedThisBattle ? 'Used' : 'Chrono'}
-          hotkey={hud.chronoUsedThisBattle ? undefined : '-10 IQ'}
+          label={
+            hud.chronoRewindCharges <= 0
+              ? 'Used'
+              : hud.maxChronoRewindCharges > 1
+                ? `Chrono (${hud.chronoRewindCharges})`
+                : 'Chrono'
+          }
+          hotkey={hud.chronoRewindCharges <= 0 ? undefined : '-10 IQ'}
           tone="chrono"
           onClick={onChronoRewind}
           disabled={!hud.canChronoRewind || !isPlayerTurn || hud.isAnimating}
           icon={<History className="w-4 h-4" />}
           title={
-            hud.chronoUsedThisBattle
+            hud.chronoRewindCharges <= 0
               ? 'Chrono Rewind already spent this battle'
-              : 'Chrono Rewind: undo last committed combat or turn (-10 IQ, once per battle)'
+              : `Chrono Rewind: undo last committed turn (-10 IQ, ${hud.chronoRewindCharges} charge remaining)`
           }
         />
         <TacticalCtaButton

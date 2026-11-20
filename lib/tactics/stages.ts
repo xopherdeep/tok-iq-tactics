@@ -380,7 +380,7 @@ export function buildStageBlueprint(
     return {
       stageNumber: 1,
       title: 'Chapter 1 · Riverrun at the Hall',
-      subtitle: `${cols}×${rows} Crossing · Keep Both Twin Commanders Alive`,
+      subtitle: `${cols}×${rows} Crossing · Rout All Enemies`,
       board,
       boardCols: cols,
       boardRows: rows,
@@ -399,7 +399,8 @@ export function buildStageBlueprint(
             {unitClass: 'ranger', col: 6, row: 0, name: 'Cinder Spine'},
           ],
       calloutText:
-        'Keep X & Sol shoulder-to-shoulder for Brotherhood Pact (+ATK & +1 DEF). If either falls, the pact breaks.',
+        'Rout all enemies. The Black Knight, Gaea, and X hold the crossroads.',
+      objectiveType: 'rout',
     };
   }
 
@@ -447,18 +448,23 @@ export function buildStageBlueprint(
     const stageTwoEnemyClasses: UnitClass[] = isDynamicMode
       ? ['sovereign', 'vanguard', 'striker', 'arcanist', 'marksman', 'healer']
       : ['sovereign', 'vanguard', 'striker', 'marksman', 'healer'];
+    const enemySquad = assignEnemySquadPositions(stageTwoEnemyClasses, board);
+    if (enemySquad[0]) {
+      enemySquad[0].name = 'Dust Alpha';
+    }
 
     return {
       stageNumber: 2,
       title: 'Chapter 2 · The Seven Lanterns',
-      subtitle: `${gridTag} Dry Wash · Flooded Spans & Waystation Stone`,
+      subtitle: `${gridTag} Dry Wash · Defeat Boss (Dust Alpha)`,
       board,
       boardCols: cols,
       boardRows: rows,
       playerSpawns: buildPlayerSpawnSlots(board),
-      enemySquad: assignEnemySquadPositions(stageTwoEnemyClasses, board),
+      enemySquad,
       calloutText:
-        'Hold the footbridge with X & Sol linked. Infinidee pierces stone cover while Gaea mends the line.',
+        'Defeat the Dust Alpha on the footbridge to secure the Seven Lanterns.',
+      objectiveType: 'defeatBoss',
     };
   }
 
@@ -488,15 +494,50 @@ export function buildStageBlueprint(
     enemySquad[0].name = bossTitle;
   }
 
+  if (stageNumber === 3) {
+    return {
+      stageNumber: 3,
+      title: 'Chapter 3 · Drowning Wash',
+      subtitle: `${cols}×${rows} Bluffs · Defend 5 Turns (${describeAdaptation(doctrine)})`,
+      board,
+      boardCols: cols,
+      boardRows: rows,
+      playerSpawns: buildPlayerSpawnSlots(board),
+      enemySquad,
+      calloutText:
+        'Hold the high red-rock ridges for 5 turns as floodwaters rise around the Titan.',
+      objectiveType: 'defend',
+      defendTurns: 5,
+    };
+  }
+
+  if (stageNumber === 4) {
+    return {
+      stageNumber: 4,
+      title: 'Chapter 4 · Anvil of the Storm',
+      subtitle: `${cols}×${rows} Ramparts · Breach Gate (Reach Row 0)`,
+      board,
+      boardCols: cols,
+      boardRows: rows,
+      playerSpawns: buildPlayerSpawnSlots(board),
+      enemySquad,
+      calloutText:
+        'Breach the storm vanguard and guide The Black Knight to Row 0.',
+      objectiveType: 'escape',
+      escapeRow: 0,
+    };
+  }
+
   return {
-    stageNumber,
-    title: `Stage ${stageNumber} · Turning of the Age`,
-    subtitle: `${cols}×${rows} Front · ${describeAdaptation(doctrine)}`,
+    stageNumber: 5,
+    title: 'Chapter 5 · Crown of the Thunderhead',
+    subtitle: `${cols}×${rows} Obsidian Spire · Slay Astral Void Fiend`,
     board,
     boardCols: cols,
     boardRows: rows,
     playerSpawns: buildPlayerSpawnSlots(board),
     enemySquad,
-    calloutText: `${describeAdaptation(doctrine)}. Keep both Twin Commanders alive.`,
+    calloutText: 'Defeat Thunderhead to banish the storm from Xadion.',
+    objectiveType: 'defeatBoss',
   };
 }

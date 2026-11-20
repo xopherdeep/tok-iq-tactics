@@ -153,6 +153,23 @@ export function getDeadeyeCritBonus(
   return isStationaryMarksman ? 20 : 0;
 }
 
+export function getBloodAndVoidBonus(attacker: Unit): number {
+  const isBloodAndVoid =
+    attacker.hasBloodAndVoid || attacker.heroId === 'black-knight';
+  if (!isBloodAndVoid) {
+    return 0;
+  }
+  const missingHpRatio = Math.max(0, 1 - attacker.hp / attacker.maxHp);
+  return Math.floor(missingHpRatio * 6);
+}
+
+export function getSkillDamageBonus(attacker: Unit): number {
+  if (attacker.activeSkillId === 'abyssalStrike') {
+    return 4;
+  }
+  return 0;
+}
+
 export function computeCriticalDamage(baseDamage: number): number {
   return Math.ceil(baseDamage * 1.5);
 }
@@ -204,6 +221,10 @@ export function calculateSingleStrikeDamage(
     isCounterAttack,
     tilesMoved,
   );
+  const bloodAndVoidBonus = isCounterAttack
+    ? 0
+    : getBloodAndVoidBonus(attacker);
+  const skillBonus = isCounterAttack ? 0 : getSkillDamageBonus(attacker);
 
   const effectiveTerrainDefense = attacker.ignoresTerrainDefense
     ? 0
@@ -222,7 +243,9 @@ export function calculateSingleStrikeDamage(
     auraAmount +
     pierceBonus +
     antiAirBonus +
-    counterBonus;
+    counterBonus +
+    bloodAndVoidBonus +
+    skillBonus;
   const pactDefenseBonus = hasBrotherhoodPactBond(defender, defenderPos, units)
     ? 1
     : 0;
@@ -232,7 +255,12 @@ export function calculateSingleStrikeDamage(
     effectiveTerrainDefense +
     pactDefenseBonus;
   const rawDamage = totalAttack - totalDefense;
-  const clampedDamage = Math.max(1, rawDamage);
+  let clampedDamage = Math.max(1, rawDamage);
+
+  if ((defender.shadowBarrierTurns ?? 0) > 0) {
+    clampedDamage = Math.max(1, Math.round(clampedDamage * 0.6));
+  }
+
   const grandmasterActive = attacker.faction === 'player' && playerIq >= 130;
   const lanternRallyHitBonus = hasAura ? 10 : 0;
   const piercingDashHitBonus = pierceBonus > 0 ? 15 : 0;

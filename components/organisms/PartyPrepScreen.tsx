@@ -68,7 +68,7 @@ export function PartyPrepScreen({
 }: PartyPrepScreenProps) {
   const [activeTab, setActiveTab] = useState<PrepTab>('party');
   const [selectedHeroId, setSelectedHeroId] = useState<string>(
-    hud.campaignRoster[0]?.id ?? 'p-commander-x',
+    hud.campaignRoster[0]?.id ?? 'c-black-knight',
   );
 
   const chapter = getChapterById(hud.activeChapterId);
@@ -111,7 +111,7 @@ export function PartyPrepScreen({
             </h1>
             <p className="text-[11px] sm:text-xs text-slate-400">
               Deployed {hud.deployedUnitIds.length} / {chapter.maxDeployCount}{' '}
-              Champions · Twin Commanders X &amp; Sol Locked · Full Rest
+              Champions · The Black Knight (King ♔) Lead · Full Rest
             </p>
           </div>
         </div>
@@ -181,7 +181,7 @@ export function PartyPrepScreen({
                 const archetype = UNIT_ARCHETYPES[unit.unitClass];
                 const deployIndex = hud.deployedUnitIds.indexOf(unit.id);
                 const isDeployed = deployIndex >= 0;
-                const isSovereign = unit.unitClass === 'sovereign';
+                const isProtagonist = unit.heroId === 'black-knight';
                 const isSelected = selectedHero?.id === unit.id;
                 const stats = getUnitEffectiveStats(
                   unit,
@@ -308,7 +308,7 @@ export function PartyPrepScreen({
                       <button
                         type="button"
                         disabled={
-                          isSovereign ||
+                          isProtagonist ||
                           (!isDeployed &&
                             hud.deployedUnitIds.length >= chapter.maxDeployCount)
                         }
@@ -319,8 +319,8 @@ export function PartyPrepScreen({
                             : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                         }`}
                       >
-                        {isSovereign
-                          ? 'Twin Pact'
+                        {isProtagonist
+                          ? 'Vanguard ♔'
                           : isDeployed
                             ? `Slot #${deployIndex + 1}`
                             : 'Deploy'}

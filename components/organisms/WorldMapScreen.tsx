@@ -351,8 +351,8 @@ export function WorldMapScreen({
               <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>
                 {hud.difficulty === 'story'
-                  ? 'Story Mode: Softer monsoon foes, full Hall rest, and Twin Commanders X & Sol deploy together.'
-                  : 'Tactical Mode: Full-strength storm AI; link X & Sol for +ATK/+1 DEF, and keep both alive.'}
+                  ? 'Story Mode: Softer monsoon foes, full Hall rest, and The Black Knight leads the vanguard.'
+                  : 'Tactical Mode: Full-strength storm AI; manage Blood & Void risk and protect The Black Knight.'}
               </span>
             </div>
           </div>
